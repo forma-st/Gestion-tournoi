@@ -72,6 +72,7 @@ function publicView(t) {
     courts: t.courts.map((c) => ({ ...c, token: undefined })),
     matches: t.matches.map((m) => ({ ...m, token: undefined })),
     messages: undefined,
+    players: (t.players || []).map((p) => ({ id: p.id, name: p.name.split(' ')[0] })),
     buvettePin: undefined,
     sales: undefined,
     cashFund: undefined,
@@ -275,6 +276,15 @@ async function api(req, res, url) {
     if (!r.open) return send(res, 403, { error: 'Les inscriptions sont fermées' });
     if (r.deadline && new Date(r.deadline + 'T23:59:59') < new Date()) return send(res, 403, { error: 'La date limite d’inscription est passée' });
     const b = await readBody(req, 20_000);
+    if (b.kind === 'player') {
+      const pname = str(b.name, 60);
+      if (!pname) return send(res, 400, { error: 'Indiquez votre nom' });
+      t.players ??= [];
+      if (t.players.some((p) => p.name.toLowerCase() === pname.toLowerCase())) return send(res, 409, { error: 'Vous êtes déjà inscrit(e)' });
+      t.players.push({ id: crypto.randomBytes(4).toString('hex'), name: pname, level: Math.min(4, Math.max(1, +b.level || 2)), gender: ['F', 'H'].includes(b.gender) ? b.gender : '', contact: str(b.contact, 120), present: false, paid: false, source: 'online', createdAt: new Date().toISOString() });
+      await save(t);
+      return send(res, 201, { ok: true });
+    }
     const name = str(b.name, 40);
     if (!name) return send(res, 400, { error: 'Indiquez un nom d’équipe' });
     if (t.teams.some((x) => x.name.toLowerCase() === name.toLowerCase())) return send(res, 409, { error: 'Ce nom d’équipe est déjà pris' });

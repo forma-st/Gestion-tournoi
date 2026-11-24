@@ -8,9 +8,12 @@ import { matchRow, courtTile, rankingsView, startTimers, STATUS } from './compon
 import { posterCanvas, drawPoster } from './promo.js';
 import { adminBuvette, adminCagnotte, barActions } from './bar.js';
 import { feesSummary, teamDue, charityTotals } from '../money.js';
+import { LEVELS, teamOptions, balanceTeams, applyTeams, suggestFormats, newPlayer } from '../club.js';
 
+let drawSeed = 0;
 const TABS = [
   ['apercu', 'Aperçu'],
+  ['joueurs', 'Joueurs'],
   ['equipes', 'Équipes'],
   ['accueil', 'Accueil'],
   ['planning', 'Format & planning'],
@@ -33,13 +36,14 @@ export async function view(ctx) {
   const toValidate = t.matches.filter((m) => m.status === 'done' && t.scoreValidation && !m.validated).length;
   const donsPending = (t.charity?.donations || []).filter((d) => !d.validated && !d.rejected).length;
   const render = PANELS[tab] || PANELS.apercu;
+  const tabs = TABS.filter(([k]) => k !== 'joueurs' || t.entry === 'players');
   const body = await render(ctx);
   let focusKeep = false;
   return {
     title: t.name,
     html: html`${shell({ title: t.name, right: html`<a class="btn ghost sm" href="#/t/${t.id}" target="_blank" rel="noopener">Portail</a><a class="btn ghost sm" href="#/live/${t.id}" target="_blank" rel="noopener">Grand écran</a>` })}
     <nav class="adminbar" aria-label="Administration"><div class="in"><div class="tabs">
-      ${TABS.map(([k, l]) => html`<a href="#/admin/${t.id}/${k}" class="${k === tab ? 'on' : ''}">${l}${k === 'apercu' && unread ? html`<span class="badge">${unread}</span>` : ''}${k === 'equipes' && pendingTeams ? html`<span class="badge">${pendingTeams}</span>` : ''}${k === 'matchs' && toValidate ? html`<span class="badge">${toValidate}</span>` : ''}${k === 'cagnotte' && donsPending ? html`<span class="badge">${donsPending}</span>` : ''}</a>`)}
+      ${tabs.map(([k, l]) => html`<a href="#/admin/${t.id}/${k}" class="${k === tab ? 'on' : ''}">${l}${k === 'apercu' && unread ? html`<span class="badge">${unread}</span>` : ''}${k === 'equipes' && pendingTeams ? html`<span class="badge">${pendingTeams}</span>` : ''}${k === 'matchs' && toValidate ? html`<span class="badge">${toValidate}</span>` : ''}${k === 'cagnotte' && donsPending ? html`<span class="badge">${donsPending}</span>` : ''}</a>`)}
     </div></div></nav>
     <main class="wrap" id="admin">${body}</main>`,
     mount(root) {
@@ -131,6 +135,41 @@ const PANELS = {
       </div></div>`;
   },
 
+  joueurs(ctx) {
+    const { t } = ctx;
+    const ps = (t.players || []).slice().sort((a, b) => (b.present - a.present) || a.name.localeCompare(b.name));
+    const present = ps.filter((p) => p.present);
+    const opts = teamOptions(present.length, t.courts.filter((c) => c.active !== false).length, 3, 6);
+    const byLvl = Object.keys(LEVELS).map((l) => [l, present.filter((p) => +p.level === +l).length]);
+    return html`<div class="row between"><h2 style="margin:0">Joueurs <span class="muted">${present.length} présents / ${ps.length} inscrits</span></h2>
+        <div class="row"><a class="btn ghost" href="#/inscription/${t.id}" target="_blank">Formulaire d’inscription</a><label class="btn ghost">Importer Excel/CSV<input type="file" accept=".csv,.txt" data-act="players-import" hidden></label></div></div>
+      <form class="card row" data-form="addplayer" style="margin-top:1rem;align-items:end">
+        <label class="f" style="flex:2;min-width:180px">Inscription sur place<input type="text" name="name" required placeholder="Prénom Nom" autocomplete="off"></label>
+        <label class="f" style="min-width:150px">Niveau<select name="level">${Object.entries(LEVELS).map(([k, l]) => html`<option value="${k}" ${k === '2' ? raw('selected') : ''}>${k} · ${l}</option>`)}</select></label>
+        <label class="f" style="min-width:110px">Genre<select name="gender"><option value="">—</option><option value="F">Femme</option><option value="H">Homme</option></select></label>
+        <button class="btn">Ajouter (présent)</button></form>
+      <div class="grid2 section" style="margin-top:1rem">
+        <div class="card tscroll" style="padding:.5rem"><table class="t"><thead><tr><th>Joueur</th><th>Niveau</th><th>Genre</th><th>Présent</th>${t.registration.fee ? html`<th>Payé</th>` : ''}<th></th></tr></thead>
+          <tbody>${ps.map((p) => html`<tr data-player="${p.id}"><td class="teamname">${p.name}${p.source === 'online' ? html` <span class="pill small">en ligne</span>` : ''}</td>
+            <td><select data-player-field="level">${Object.entries(LEVELS).map(([k, l]) => html`<option value="${k}" ${+p.level === +k ? raw('selected') : ''}>${k} · ${l}</option>`)}</select></td>
+            <td><select data-player-field="gender"><option value="">—</option><option value="F" ${p.gender === 'F' ? raw('selected') : ''}>F</option><option value="H" ${p.gender === 'H' ? raw('selected') : ''}>H</option></select></td>
+            <td><input type="checkbox" data-player-field="present" ${p.present ? raw('checked') : ''} aria-label="Présent"></td>
+            ${t.registration.fee ? html`<td><input type="checkbox" data-player-field="paid" ${p.paid ? raw('checked') : ''} aria-label="Payé"></td>` : ''}
+            <td><button class="btn danger sm" data-act="player-del" aria-label="Supprimer">✕</button></td></tr>`)}</tbody></table>
+          ${!ps.length ? html`<p class="muted" style="padding:.5rem">Les inscriptions en ligne et sur place apparaissent ici.</p>` : ''}</div>
+        <div class="stack">
+          <div class="card stack"><h3 style="margin:0">Former les équipes</h3>
+            <p class="small" style="margin:0">Présents par niveau : ${byLvl.map(([l, n]) => `${LEVELS[l]} ${n}`).join(' · ')}</p>
+            ${opts.length ? html`<div class="stack" style="gap:.5rem">${opts.map((o, i) => html`<label class="tile" style="padding:.7rem"><input type="radio" name="teamsize" value="${o.teams}" ${i === 0 ? raw('checked') : ''}><b style="font-size:1.1rem">${o.label}</b><small>${o.fit === 2 ? 'Idéal : tous les terrains occupés, personne n’attend' : o.fit === 1 ? 'Une équipe au repos, qui arbitre' : o.resting ? `${o.resting} équipes au repos à chaque rotation` : ''}</small></label>`)}</div>
+              <label class="check"><input type="checkbox" id="mixed" checked> Répartir aussi les femmes équitablement</label>
+              <button class="btn ball" data-act="draw-teams">Tirer les équipes</button>`
+            : html`<p class="muted" style="margin:0">Cochez au moins 6 joueurs présents.</p>`}
+            ${t.teams.some((x) => x.source === 'tirage') ? html`<p class="hint" style="margin:0">Équipes actuelles : ${t.teams.length}. Un nouveau tirage les remplace (et efface le planning).</p>` : ''}
+          </div>
+        </div>
+      </div>`;
+  },
+
   accueil(ctx) {
     const { t, resolved } = ctx;
     const r = t.registration;
@@ -192,9 +231,14 @@ const PANELS = {
     const { t } = ctx;
     const p = previewDay(t);
     const compare = t.format.type === 'roundrobin' ? formulaCompare(t) : null;
+    const sugg = t.endTime && t.teams.filter((x) => x.status === 'confirmed').length >= 2 ? suggestFormats(t).slice(0, 6) : null;
     return html`<div class="wizard">
       <div class="stack">
-        <form class="card stack" onsubmit="return false"><h2>Format</h2>${sectionFormat(t)}${compare ? compareTable(compare, t) : ''}</form>
+        ${sugg ? html`<div class="card stack"><div><h2 style="margin:0">Formules conseillées</h2><p class="hint" style="margin:0">${t.teams.filter((x) => x.status === 'confirmed').length} équipes, ${t.courts.filter((c) => c.active !== false).length} terrains, de ${t.startTime} à ${t.endTime}, rotations de ${t.slotMinutes} min. Les plus riches en matchs d’abord.</p></div>
+          <div class="tscroll"><table class="t"><thead><tr><th>Formule</th><th class="n">Matchs</th><th class="n">Min. par équipe</th><th class="n">Fin</th><th></th></tr></thead><tbody>
+          ${sugg.map((x) => html`<tr class="${x.fits ? '' : 'muted'}"><td><b>${x.label}</b></td><td class="n">${x.matches}</td><td class="n">${x.minPerTeam}</td><td class="n"><b style="${x.fits ? '' : 'color:var(--loss)'}">${x.end}</b>${x.fits ? '' : ' (trop tard)'}</td>
+            <td><button class="btn ${x.fits ? '' : 'ghost'} sm" data-act="use-format" data-f="${JSON.stringify(x.format)}">Choisir</button></td></tr>`)}</tbody></table></div></div>` : ''}
+        <form class="card stack" onsubmit="return false"><h2>Format</h2>${sectionFormat(t)}${compare && !sugg ? compareTable(compare, t) : ''}</form>
         <form class="card stack" onsubmit="return false"><h2>Règles et horaires</h2>${sectionRules(t)}</form>
         <div class="card stack">
           <div class="row between"><h2 style="margin:0">Planning</h2>
@@ -345,6 +389,7 @@ function nextStep(ctx) {
   const pending = t.teams.filter((x) => x.status === 'pending').length;
   const playable = t.matches.filter((m) => m.status !== 'bye');
   const a = (href, label) => html`<a class="btn" href="${href}">${label}</a>`;
+  if (t.entry === 'players' && conf < 2) return { title: 'Inscrivez les joueurs, puis tirez les équipes', text: `${(t.players || []).length} joueurs inscrits, ${(t.players || []).filter((p) => p.present).length} présents. Pointez les présents et ajoutez ceux qui s’inscrivent sur place.`, action: a(`#/admin/${t.id}/joueurs`, 'Gérer les joueurs') };
   if (conf < 2) return { title: 'Ajoutez vos équipes', text: t.registration.open ? 'Les inscriptions en ligne sont ouvertes. Vous pouvez aussi ajouter les équipes à la main.' : 'Ajoutez les équipes à la main ou ouvrez les inscriptions en ligne.', action: a(`#/admin/${t.id}/equipes`, 'Ajouter des équipes') };
   if (pending) return { title: `${plural(pending, 'inscription')} à valider`, text: 'Des équipes attendent votre validation.', action: a(`#/admin/${t.id}/equipes`, 'Voir les équipes') };
   if (!t.matches.length) return { title: 'Générez le planning', text: `${conf} équipes confirmées. Vérifiez le format puis générez les matchs.`, action: a(`#/admin/${t.id}/planning`, 'Générer le planning') };
@@ -442,6 +487,22 @@ async function onChange(ctx, e) {
     if (store.mode === 'local') ctx.rerender();
     return;
   }
+  if (el.dataset.playerField) {
+    const id = el.closest('[data-player]').dataset.player;
+    const f = el.dataset.playerField;
+    const v = el.type === 'checkbox' ? el.checked : f === 'level' ? +el.value : el.value;
+    await save(ctx, (d) => { d.players.find((p) => p.id === id)[f] = v; });
+    if (store.mode === 'local') ctx.rerender();
+    return;
+  }
+  if (el.dataset.act === 'players-import' && el.files[0]) {
+    const lines = (await el.files[0].text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+    const sep = lines[0].includes(';') ? ';' : lines[0].includes('\t') ? '\t' : ',';
+    const rows = lines.map((l) => l.split(sep).map((c) => c.replace(/^"|"$/g, '').trim()));
+    const hasHead = /nom|name|joueur/i.test(rows[0][0]);
+    await save(ctx, (d) => { d.players ??= []; for (const r of rows.slice(hasHead ? 1 : 0)) if (r[0] && !d.players.some((p) => p.name.toLowerCase() === r[0].toLowerCase())) d.players.push(newPlayer(r[0], { level: Math.min(4, Math.max(1, +r[1] || 2)), gender: /^f/i.test(r[2] || '') ? 'F' : /^[hm]/i.test(r[2] || '') ? 'H' : '' })); }, 'Joueurs importés');
+    return ctx.rerender();
+  }
   if (el.dataset.act === 'team-import' && el.files[0]) return importTeams(ctx, await el.files[0].text());
   if (el.dataset.act === 'import-json' && el.files[0]) {
     try {
@@ -463,6 +524,15 @@ async function onSubmit(ctx, e) {
     if (!text) return;
     await save(ctx, (d) => { (d.announcements ??= []).push({ id: uid(5), text, at: new Date().toISOString() }); d.announcements = d.announcements.slice(-20); }, 'Annonce envoyée');
     ctx.rerender();
+  }
+  if (f === 'addplayer') {
+    const fm = e.target;
+    const name = fm.name.value.trim();
+    if (!name) return;
+    await save(ctx, (d) => { (d.players ??= []).push(newPlayer(name, { level: +fm.level.value, gender: fm.gender.value, present: true, source: 'surplace' })); }, `${name} ajouté`);
+    ctx.rerender();
+    setTimeout(() => document.querySelector('form[data-form=addplayer] input[name=name]')?.focus(), 50);
+    return;
   }
   if (f === 'search') { location.hash = `#/admin/${ctx.t.id}/accueil?q=${encodeURIComponent(e.target.q.value)}`; return; }
   if (f === 'baseurl') { store.setBaseUrl(e.target.url.value.trim()); toast('Adresse enregistrée', 'ok'); ctx.rerender(); }
@@ -510,6 +580,27 @@ async function onClick(ctx, e) {
         if (y.checkedIn) y.late = false;
       });
       return rr();
+    }
+    case 'use-format': {
+      const f = JSON.parse(b.dataset.f); delete f.label;
+      await save(ctx, (d) => { d.format = f; }, 'Formule choisie : générez le planning');
+      return rr();
+    }
+    case 'player-del':
+      await save(ctx, (d) => { d.players = d.players.filter((p) => p.id !== b.closest('[data-player]').dataset.player); }); return rr();
+    case 'draw-teams': {
+      const n = +($('input[name=teamsize]:checked')?.value || 0);
+      if (!n) return;
+      drawSeed++;
+      const split = balanceTeams((t.players || []).filter((p) => p.present), n, { mixed: $('#mixed')?.checked, seed: drawSeed });
+      const gap = Math.max(...split.map((x) => x.total)) - Math.min(...split.map((x) => x.total));
+      const r = await modal({ title: `${n} équipes équilibrées`, wide: true, ok: 'Valider ces équipes', cancel: 'Fermer',
+        body: html`<div class="grid3">${split.map((sp) => html`<div class="card flat"><b>${sp.name}</b> <span class="muted small">niveau moyen ${sp.avg.toFixed(1)}</span><ul style="margin:.4rem 0 0;padding-left:1.1rem">${sp.members.map((p) => html`<li>${p.name} <span class="muted small">${p.level}${p.gender ? ` · ${p.gender}` : ''}</span></li>`)}</ul></div>`)}</div>
+          <p class="hint" style="margin:0">Écart entre l’équipe la plus forte et la plus faible : ${gap} point${gap > 1 ? 's' : ''} de niveau. Pas convaincu ? Fermez et cliquez de nouveau sur « Tirer les équipes » : une autre répartition sera proposée.</p>` });
+      if (!r) return;
+      await save(ctx, (d) => { applyTeams(d, split); }, 'Équipes créées');
+      location.hash = `#/admin/${t.id}/planning`;
+      return;
     }
     case 'filter': location.hash = `#/admin/${t.id}/matchs?f=${b.dataset.f}`; break;
     case 'add-break': await save(ctx, (d) => { d.breaks.push({ afterSlot: 3, minutes: 30, label: 'Pause' }); }); rr(); break;

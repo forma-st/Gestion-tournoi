@@ -1,4 +1,5 @@
 // Tournois d'exemple : le multisport de la semaine prochaine, le format 18 équipes, une double élimination.
+import { newPlayer } from './club.js';
 import { newTournament, makeTeam, buildSchedule, resolve, scoringFor, BYE, COURT_COLORS, SCORING_PRESETS, uid } from './engine.js';
 
 const NAMES = ['Les Smasheurs', 'Block Party', 'Les Pieds Carrés', 'Service Gagnant', 'Filet Mignon', 'Les Manchettes', 'Ace Ventura', 'Les Libéros', 'Team Réception', 'Les Passeurs Fous', 'Sable Chaud', 'Les Contres Attaques', 'Volley Gones', 'Les Kangourous', 'Pas de Côté', 'Les Rotations', 'Bloc Opératoire', 'Les Tie-Breakers'];
@@ -26,6 +27,7 @@ function mkTeams(n) {
 export const DEMOS = {
   multisport: 'Téléthon : 7 équipes, 3 sports (tennis de table, dodgeball, volley), matchs de 8 min',
   fluo: 'Tournoi fluo : 18 équipes de volley, poules de 3, puis niveaux et matchs de classement',
+  interne: 'Tournoi interne : 26 joueurs inscrits avec leur niveau, équipes tirées sur place, 19 h 30 – 22 h',
   double: 'Double chance : 8 équipes en double élimination avec repêchage',
 };
 
@@ -71,7 +73,7 @@ export function buildDemo(kind = 'multisport') {
       name: 'Tournoi du Téléthon',
       tagline: '7 équipes, 3 sports, une seule cause : chaque inscription, chaque crêpe et chaque point marqué vont au Téléthon.',
       description: 'Une soirée conviviale et solidaire : chaque équipe rencontre les autres en tournant sur le tennis de table, le dodgeball et le volley. Matchs de 8 minutes, l’équipe au repos arbitre, buvette au profit du Téléthon.',
-      date: nextSaturday(), startTime: '20:30', slotMinutes: 10,
+      date: nextSaturday(), startTime: '20:30', endTime: '23:00', slotMinutes: 10,
       venue: 'Gymnase', address: '',
       organizer: 'Rambouillet Volleyball', contact: 'contact@exemple.fr',
       theme: '#0B6E2E',
@@ -102,12 +104,31 @@ export function buildDemo(kind = 'multisport') {
       teams: mkTeams(7).map((x) => ({ ...x, players: [...x.players, 'Lina'], payment: 'unpaid', checkedIn: false })),
     });
   }
+  if (kind === 'interne') {
+    const first = ['Camille', 'Hugo', 'Léa', 'Yanis', 'Inès', 'Mathis', 'Chloé', 'Nathan', 'Manon', 'Lucas', 'Sarah', 'Théo', 'Jade', 'Adam', 'Zoé', 'Louis', 'Emma', 'Noah', 'Lina', 'Gabriel', 'Alice', 'Jules', 'Rose', 'Arthur', 'Anna', 'Raphaël'];
+    const fem = new Set(['Camille', 'Léa', 'Inès', 'Chloé', 'Manon', 'Sarah', 'Jade', 'Zoé', 'Emma', 'Lina', 'Alice', 'Rose', 'Anna']);
+    const lv = [4, 3, 2, 4, 1, 3, 2, 2, 3, 4, 1, 2, 3, 2, 1, 3, 2, 4, 2, 3, 1, 2, 3, 2, 1, 3];
+    return newTournament({
+      name: 'Tournoi interne du jeudi',
+      tagline: 'Venez seul ou à plusieurs : les équipes sont tirées sur place, équilibrées par niveau.',
+      description: 'Le tournoi mensuel du club, ouvert à tous les adhérents. Inscription individuelle, équipes mixtes formées sur place.',
+      date: nextSaturday(), startTime: '19:30', endTime: '22:00', slotMinutes: 15,
+      venue: 'Gymnase', organizer: 'Rambouillet Volleyball', theme: '#0B6E2E', entry: 'players',
+      courts: [0, 1, 2].map((i) => ({ id: `c${i + 1}`, name: `Terrain ${i + 1}`, sport: 'volley', color: COURT_COLORS[i], token: uid(10) })),
+      format: { type: 'roundrobin', legs: 1 },
+      scoring: { ...SCORING_PRESETS['time-12'], preset: 'time-12' },
+      referees: 'none',
+      registration: { open: true, maxTeams: 8, minPlayers: 4, maxPlayers: 6, fee: 0, paymentProvider: 'onsite' },
+      players: first.map((n, i) => newPlayer(`${n} ${String.fromCharCode(65 + (i % 26))}.`, { level: lv[i], gender: fem.has(n) ? 'F' : 'H', present: i < 24, source: i % 3 ? 'online' : 'admin' })),
+      teams: [],
+    });
+  }
   if (kind === 'fluo' || kind === '18teams') {
     return newTournament({
       name: 'Tournoi Fluo',
       tagline: 'Volley dans le noir : 18 équipes, poules de 3, des matchs qui s’enchaînent toutes les 12 minutes.',
       description: 'Lumière noire, ballons fluo et maillots qui brillent. Brassage en poules de 3, puis poules de niveau pour jouer contre des équipes de votre niveau, et matchs de classement pour finir : chaque équipe repart avec sa place.',
-      date: nextSaturday(), startTime: '21:00', slotMinutes: 12,
+      date: nextSaturday(), startTime: '21:00', endTime: '00:00', slotMinutes: 12,
       venue: 'Gymnase', address: '',
       organizer: 'Rambouillet Volleyball', contact: 'contact@exemple.fr',
       theme: '#D4FF00',

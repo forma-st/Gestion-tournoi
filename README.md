@@ -47,6 +47,7 @@ npm test    # moteur : rotations, poules, niveaux, tableaux, classements, retard
 | **Formats** | Championnat, multisport compris (1 à 3 manches, chaque paire rejoue dans un sport différent) ; poules + phases finales (consolante, petite finale) ; **poules de 3 → poules de niveau → matchs de classement** ; élimination directe ; **double élimination avec repêchage**. |
 | **Règles** | Aux points (sets, tie-break, 2 points d’écart, plafond) ou **au temps** (chrono partagé, nul possible). Une règle par terrain ou par sport. Barèmes : 3/1/0, FIVB, beach 2/1, **3/2/1 avec point de participation**. |
 | **Planning** | Rotations, terrains, horaires, pauses ; arbitrage par l’équipe au repos ; équilibre des sports en multisport (chaque équipe joue autant de fois chaque sport). |
+| **Tournoi interne** | Inscription **individuelle** en ligne ou sur place avec le niveau du joueur (1 à 4) et le genre ; **tirage d’équipes équilibrées** (niveau et mixité) selon le nombre de joueurs présents et de terrains ; **formules conseillées** pour tenir entre l’heure de début et l’heure de fin. |
 | **Inscriptions** | Formulaire en ligne sans compte, liste d’attente, validation, niveau (pour équilibrer les poules), import Excel/CSV, prix par équipe ou **par joueur**. |
 | **Paiement** | Lien HelloAsso, Stripe (référence transmise), SumUp, Lydia, PayPal ou sur place ; suivi payé / à payer. |
 | **Accueil** | Pointage joueur par joueur, encaissement à l’entrée (espèces, carte, Lydia) avec don en plus, **équipe en retard → ses matchs sont décalés automatiquement** sans conflit. |

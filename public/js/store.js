@@ -233,6 +233,14 @@ export const store = {
   async register(id, data) {
     if (this.mode === 'server') return this.api(`t/${id}/register`, { method: 'POST', body: JSON.stringify(data) });
     let out;
+    if (data.kind === 'player') {
+      await this.mutate(id, (t) => {
+        t.players ??= [];
+        if (t.players.some((p) => p.name.toLowerCase() === data.name.trim().toLowerCase())) throw new Error('Vous êtes déjà inscrit(e)');
+        t.players.push({ id: Math.random().toString(36).slice(2, 8), name: data.name.trim(), level: +data.level || 2, gender: data.gender || '', contact: data.contact || '', present: false, paid: false, source: 'online', createdAt: new Date().toISOString() });
+      });
+      return { ok: true };
+    }
     await this.mutate(id, (t) => {
       const r = t.registration || {};
       if (!r.open) throw new Error('Les inscriptions sont fermées');

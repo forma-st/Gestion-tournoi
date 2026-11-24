@@ -62,9 +62,14 @@ const presetOptions = (withInherit) => ({ ...(withInherit ? { '': 'Comme le tour
 export function sectionEssentials(t) {
   return html`<div class="stack">
     <label class="f">Nom du tournoi<input type="text" data-path="name" value="${t.name}" required maxlength="60"></label>
+    <div class="tiles" role="radiogroup" aria-label="Inscriptions">
+      <label class="tile"><input type="radio" name="entry" data-path="entry" value="teams" ${t.entry !== 'players' ? raw('checked') : ''}><b>Par équipes</b><small>Les équipes s’inscrivent déjà constituées.</small></label>
+      <label class="tile"><input type="radio" name="entry" data-path="entry" value="players" ${t.entry === 'players' ? raw('checked') : ''}><b>Tournoi interne (par joueur)</b><small>Chacun s’inscrit avec son niveau ; l’application forme des équipes équilibrées.</small></label>
+    </div>
     <div class="grid3">
       <label class="f">Date<input type="date" data-path="date" value="${t.date}"></label>
       <label class="f">Premier match<input type="time" data-path="startTime" value="${t.startTime}"></label>
+      <label class="f">Fin souhaitée<input type="time" data-path="endTime" value="${t.endTime || ''}"></label>
       <label class="f">Lieu<input type="text" data-path="venue" value="${t.venue}" placeholder="Gymnase, plage…"></label>
     </div>
     <label class="f">Adresse<input type="text" data-path="address" value="${t.address}" placeholder="Pour l’itinéraire et la page de promotion"></label>
@@ -205,7 +210,11 @@ export function previewDay(t, expectedTeams) {
   const endTime = slotTime(t, st.slots);
   const [eh] = endTime.split(':').map(Number);
   const playMin = st.slots * t.slotMinutes;
-  return { teams: n, matches: st.matches, slots: st.slots, start: t.startTime, end: endTime, minM, maxM, playMin, late: eh >= 20 || eh < 6, lastSlot };
+  const toM = (x) => { const [h, m] = x.split(':').map(Number); return h * 60 + m; };
+  const s0 = toM(t.startTime), fin = s0 + playMin + (t.breaks || []).reduce((a, b) => a + (b.afterSlot < st.slots - 1 ? b.minutes : 0), 0);
+  const limit = t.endTime ? toM(t.endTime) + (toM(t.endTime) < s0 ? 1440 : 0) : null;
+  const late = limit != null ? fin > limit : eh >= 23 || eh < 6;
+  return { teams: n, matches: st.matches, slots: st.slots, start: t.startTime, end: endTime, minM, maxM, playMin, late, limit: t.endTime, lastSlot };
 }
 
 export function previewCard(t, p, expected) {
@@ -221,7 +230,7 @@ export function previewCard(t, p, expected) {
       <div><span class="big">${p.end}</span><small>fin estimée</small></div>
     </div>
     <p style="margin:0 0 .6rem">Chaque équipe joue ${p.minM === p.maxM ? html`<b>${p.minM} matchs</b>` : html`<b>${p.minM} à ${p.maxM} matchs</b> en poule`}${t.format.type !== 'roundrobin' || t.format.finalsTop ? ' + phases finales' : ''}. Temps de jeu total : ${h} h ${String(m).padStart(2, '0')}.</p>
-    ${p.late ? html`<p class="warn">La journée finit tard. Réduisez le nombre de rencontres ou la durée d’une rotation.</p>` : ''}
+    ${p.late ? html`<p class="warn">${p.limit ? `Ça dépasse la fin souhaitée (${p.limit}).` : 'La journée finit tard.'} Choisissez une formule plus courte ou réduisez la durée d’une rotation.</p>` : ''}
   </aside>`;
 }
 

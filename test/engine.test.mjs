@@ -216,3 +216,22 @@ test('équipe en retard sans repos plus tard : son match part en fin de phase', 
   const slots = {};
   for (const m of t.matches) for (const x of [m.teamA, m.teamB]) { const k = m.slot + x; assert.ok(!slots[k]); slots[k] = 1; }
 });
+
+import * as C from '../public/js/club.js';
+test('tournoi interne : 26 joueurs de niveaux 1 à 4 → équipes équilibrées, formule qui tient dans l’horaire', () => {
+  const lv = [4, 4, 4, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 4, 3, 2, 1];
+  const players = lv.map((l, i) => C.newPlayer(`J${i}`, { level: l, gender: i % 3 ? 'H' : 'F', present: true }));
+  const opts = C.teamOptions(players.length, 3, 4, 6);
+  assert.equal(opts[0].teams, 6); // 6 équipes sur 3 terrains : tout le monde joue
+  const split = C.balanceTeams(players, 6);
+  assert.equal(split.flatMap((s) => s.members).length, 26);
+  const totals = split.map((s) => s.total);
+  assert.ok(Math.max(...totals) - Math.min(...totals) <= 2, totals.join(','));
+  const women = split.map((s) => s.members.filter((p) => p.gender === 'F').length);
+  assert.ok(Math.max(...women) - Math.min(...women) <= 1);
+  const t = E.newTournament({ startTime: '19:30', endTime: '22:00', slotMinutes: 15, courts: [1, 2, 3].map((i) => ({ id: `c${i}`, name: `T${i}`, sport: 'volley', color: '#000' })) });
+  C.applyTeams(t, split);
+  const sug = C.suggestFormats(t);
+  assert.ok(sug[0].fits);
+  assert.ok(sug.every((s, i) => i === 0 || !s.fits || s.minPerTeam <= sug[0].minPerTeam));
+});

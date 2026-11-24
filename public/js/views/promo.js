@@ -4,6 +4,7 @@ import { SPORTS } from '../engine.js';
 import { FORMATS, PROVIDERS } from './settings.js';
 import qrcode from '../../vendor/qrcode.mjs';
 import { charityCard, declareDonation, charityOf } from './bar.js';
+import { LEVELS } from '../club.js';
 
 const placesLeft = (t) => Math.max(0, (t.registration.maxTeams || 0) - t.teams.filter((x) => x.status === 'confirmed').length);
 
@@ -94,7 +95,15 @@ export async function registerView(ctx) {
     html: html`<header class="topbar" style="background:${t.theme || 'var(--ink)'}"><div class="in"><a class="brand ${contrastInk(t.theme || '#0F2A17')}" href="#/p/${t.id}" style="${contrastInk(t.theme || '#0F2A17') ? 'color:var(--ink)' : ''}">${logo}<span>${t.name}</span></a></div></header>
     <main class="wrap narrow" id="reg">
       ${closed ? html`<div class="empty"><h2>Les inscriptions sont fermées</h2><p>Contactez l’organisation : ${t.contact || t.organizer}</p></div>` : html`
-      <form class="card stack" id="regform">
+      ${t.entry === 'players' ? html`<form class="card stack" id="playerform">
+        <div><h2 style="margin:0">Je m’inscris</h2><p class="muted" style="margin:0">${fmtDate(t.date)} · ${t.startTime}${t.endTime ? `–${t.endTime}` : ''} · ${t.venue}${r.fee ? ` · ${euros(r.fee)}` : ''}</p></div>
+        <p class="small muted" style="margin:0">Inscription individuelle : les équipes sont formées sur place, équilibrées selon le niveau de chacun.</p>
+        <label class="f">Prénom et nom<input type="text" name="name" required maxlength="60" autocomplete="name"></label>
+        <label class="f">Mon niveau<select name="level">${Object.entries(LEVELS).map(([k, l]) => html`<option value="${k}" ${k === '2' ? raw('selected') : ''}>${k} · ${l}</option>`)}</select></label>
+        <label class="f">Genre <span class="hint">Facultatif, pour équilibrer les équipes mixtes</span><select name="gender"><option value="">Je ne précise pas</option><option value="F">Femme</option><option value="H">Homme</option></select></label>
+        <label class="f">E-mail ou téléphone <span class="hint">Facultatif</span><input type="text" name="contact" maxlength="120"></label>
+        <button class="btn ball block" style="min-height:52px">M’inscrire</button>
+      </form>` : html`<form class="card stack" id="regform">
         <div><h2 style="margin:0">Inscrire mon équipe</h2><p class="muted" style="margin:0">${fmtDate(t.date)} · ${t.venue} · ${r.fee ? `${euros(r.fee)} par ${r.feeMode === 'player' ? 'joueur' : 'équipe'}` : 'gratuit'}</p></div>
         ${!left ? html`<p class="pill warn">Complet : votre équipe sera placée en liste d’attente.</p>` : html`<p class="small muted" style="margin:0">${plural(left, 'place restante', 'places restantes')}.${r.requireValidation ? ' L’organisation valide chaque inscription.' : ''}</p>`}
         <label class="f">Nom de l’équipe<input type="text" name="name" required maxlength="40" autocomplete="off"></label>
@@ -105,10 +114,19 @@ export async function registerView(ctx) {
         <label class="f">Un mot pour l’organisation <span class="hint">Facultatif</span><textarea name="comment" rows="2" maxlength="300"></textarea></label>
         <label class="check"><input type="checkbox" name="consent" required> <span class="small">J’accepte que ces informations servent uniquement à l’organisation du tournoi. Elles sont supprimées après l’événement.</span></label>
         <button class="btn ball block" style="min-height:52px">Inscrire mon équipe</button>
-      </form>`}
+      </form>`}`}
     </main>`,
     keep: () => true, // ne jamais redessiner le formulaire (ni la confirmation) pendant la saisie
     mount(root) {
+      $('#playerform', root)?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = e.target;
+        f.querySelector('button').disabled = true;
+        try {
+          await store.register(t.id, { kind: 'player', name: f.name.value, level: f.level.value, gender: f.gender.value, contact: f.contact.value });
+          $('#reg', root).innerHTML = toStr(html`<div class="card stack" style="text-align:center"><h2>C’est noté, ${f.name.value.split(' ')[0]} !</h2><p>Rendez-vous ${fmtDate(t.date)} à ${t.startTime}. Les équipes seront tirées sur place.</p><a class="btn ghost" href="#/p/${t.id}">Page du tournoi</a></div>`);
+        } catch (err) { toast(err.message, 'err'); f.querySelector('button').disabled = false; }
+      });
       $('#regform', root)?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const f = e.target;

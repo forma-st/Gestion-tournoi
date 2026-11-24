@@ -83,7 +83,15 @@ Alternative simple : SumUp ou un TPE Android permettent d’ouvrir l’app de pa
 Ce que Rotation apporte en plus : hors ligne réel, multisport avec rotation équilibrée, matchs au temps et aux points sur le même tournoi, buvette avec matières premières, cagnotte solidaire en direct, accueil avec gestion des retards.
 Les solutions de paiement les plus adaptées à une association : **HelloAsso** (0 % pour l’association, contribution volontaire du payeur), Stripe Payment Links (1,5 % + 0,25 €), SumUp sur place (1,75 %).
 
-## 6. Prochaines étapes possibles
+## 6. Tournois internes du club
+
+Pour les tournois réguliers de l’année :
+- **Inscription individuelle** en ligne (lien ou QR) ou sur place depuis l’onglet *Joueurs*, avec niveau 1 (débutant) à 4 (compétition) et genre (facultatif).
+- Le jour J, on coche les présents. L’application propose les tailles d’équipe possibles : par exemple 25 joueurs et 3 terrains donnent 6 équipes de 4, et tous les terrains sont occupés.
+- **Tirage équilibré** : serpentin par niveau (femmes et hommes répartis séparément pour la mixité), puis échanges jusqu’à ce que les totaux de niveau soient les plus proches possible. On peut refaire le tirage autant de fois qu’on veut.
+- **Formules conseillées** selon l’heure de début, l’heure de fin et la durée d’une rotation : l’application essaie toutes les formules et classe celles qui tiennent dans l’horaire, les plus riches en matchs d’abord.
+
+## 7. Prochaines étapes possibles
 
 - Système suisse (rondes appariées par niveau), utile au-delà de 24 équipes.
 - Mêlée (équipes recomposées à chaque match) pour les tournois individuels.

@@ -43,7 +43,7 @@ export async function homeView() {
         <h2>Partir d’un exemple</h2>
         <div class="tiles">
           ${Object.entries(DEMOS).map(([k, label]) => html`<div class="tile" style="cursor:default"><b>${label.split(' : ')[0]}</b><small>${label.split(' : ')[1]}</small>
-            <div class="row" style="margin-top:.5rem"><button class="btn sm" data-act="demo" data-kind="${k}" data-sim="-1">Créer</button><button class="btn ghost sm" data-act="demo" data-kind="${k}" data-sim="${k === 'fluo' ? 7 : 3}">Avec des matchs joués</button></div></div>`)}
+            <div class="row" style="margin-top:.5rem"><button class="btn sm" data-act="demo" data-kind="${k}" data-sim="-1">Créer</button>${k === 'interne' ? '' : html`<button class="btn ghost sm" data-act="demo" data-kind="${k}" data-sim="${k === 'fluo' ? 7 : 3}">Avec des matchs joués</button>`}</div></div>`)}
         </div>
       </section>
       <section class="section">
@@ -71,11 +71,12 @@ export async function homeView() {
         try {
           let t = buildSchedule(buildDemo(b.dataset.kind));
           t.id = `${b.dataset.kind === 'multisport' ? 'telethon' : b.dataset.kind}-${uid(4)}`;
-          if (+b.dataset.sim >= 0) { simulate(t, +b.dataset.sim); t.status = 'live'; }
+          if (b.dataset.kind === 'interne') t = { ...buildDemo('interne'), id: `interne-${uid(4)}` };
+          else if (+b.dataset.sim >= 0) { simulate(t, +b.dataset.sim); t.status = 'live'; }
           else t.status = 'ready';
           await store.create(t);
           toast('Tournoi d’exemple créé', 'ok');
-          location.hash = `#/admin/${t.id}`;
+          location.hash = `#/admin/${t.id}${b.dataset.kind === 'interne' ? '/joueurs' : ''}`;
         } catch (err) { toast(err.message, 'err'); b.disabled = false; }
       });
     },
@@ -171,7 +172,7 @@ export function compareTable(opts, t) {
       <tbody>${opts.map((o) => {
         const on = (t.format.legs || 1) === o.legs && (t.format.finalsTop || 0) === o.top;
         return html`<tr class="${on ? 'me' : ''}">
-          <td><b>${o.legs === 1 ? 'Chacun se rencontre 1 fois' : `Chacun se rencontre ${o.legs} fois`}</b>${o.top ? ' + demi-finales et finale' : ''}<br><span class="hint">${o.legs === 1 ? 'dans un seul sport, réparti équitablement' : `dans ${o.legs} sports différents`}</span></td>
+          <td><b>${o.legs === 1 ? 'Chacun se rencontre 1 fois' : `Chacun se rencontre ${o.legs} fois`}</b>${o.top ? ' + demi-finales et finale' : ''}<br><span class="hint">${new Set(t.courts.map((c) => c.sport)).size < 2 ? (o.legs === 2 ? 'aller-retour' : o.legs === 3 ? 'trois fois' : 'une fois') : o.legs === 1 ? 'dans un seul sport, réparti équitablement' : `dans ${o.legs} sports différents`}</span></td>
           <td class="n">${o.matches}</td><td class="n">${o.minM === o.maxM ? o.minM : `${o.minM}–${o.maxM}`}${o.top ? '+' : ''}</td>
           <td class="n">${Math.floor(o.playMin / 60)} h ${String(o.playMin % 60).padStart(2, '0')}</td><td class="n"><b>${o.end}</b></td>
           <td>${on ? html`<span class="pill ok">Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
