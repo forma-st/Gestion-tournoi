@@ -99,7 +99,7 @@ export function buildDemo(kind = 'multisport') {
       cashFund: 100,
       buvettePin: '2024',
       infos: 'Rotation toutes les 10 minutes : 8 minutes de jeu, 2 minutes pour changer de terrain. L’équipe au repos arbitre. Inscription : 5 € minimum par joueur, reversés au Téléthon.',
-      teams: mkTeams(7).map((x) => ({ ...x, players: [...x.players, 'Lina'] })),
+      teams: mkTeams(7).map((x) => ({ ...x, players: [...x.players, 'Lina'], payment: 'unpaid', checkedIn: false })),
     });
   }
   if (kind === 'fluo' || kind === '18teams') {
@@ -137,6 +137,8 @@ export function buildDemo(kind = 'multisport') {
 
 /** Simule des résultats pour les `slots` premiers créneaux, et met le créneau suivant « en cours ». */
 export function simulate(t, slots) {
+  // tournoi commencé : tout le monde est arrivé et a payé
+  for (const x of t.teams) if (x.status === 'confirmed') { x.present = [...(x.players || [])]; x.checkedIn = true; if (x.payment === 'unpaid') { x.payment = 'onsite'; x.payMethod = 'cash'; } }
   const strength = Object.fromEntries(t.teams.map((x, i) => [x.id, 100 - i * 3 + ((i * 37) % 11)]));
   let rnd = 7;
   const rand = () => ((rnd = (rnd * 9301 + 49297) % 233280) / 233280);

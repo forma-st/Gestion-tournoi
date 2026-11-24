@@ -215,7 +215,7 @@ table.t tr.q td:first-child { box-shadow: inset 4px 0 0 var(--win); }
 .slot-h h3 { margin: 0; }
 
 /* ------------------------------------------------------------------ terrain vu du dessus (élément signature) */
-.court { --c: var(--court); position: relative; border-radius: var(--r); background: var(--c); color: #fff; padding: .9rem 1rem 1rem; overflow: hidden; isolation: isolate; }
+.court { --c: var(--court); position: relative; border-radius: var(--r); background: var(--c); color: #fff; padding: .9rem 1rem 1.35rem; overflow: hidden; isolation: isolate; }
 .court::before { content: ''; position: absolute; inset: 10px; border: 2px solid rgba(255, 255, 255, .55); border-radius: 4px; z-index: -1; }
 .court .halves::after { content: ''; position: absolute; top: -.2rem; bottom: -.2rem; left: 50%; width: 4px; margin-left: -2px; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .95) 0 3px, transparent 3px 6px); }
 .court.light { color: var(--ink); }
@@ -281,7 +281,7 @@ body.tv { background: #062410; color: #fff; overflow: hidden; }
 .tvhead .clock { font-family: var(--display); font-weight: 800; font-size: 5vh; color: var(--ball); font-variant-numeric: tabular-nums; }
 .tvmain { display: grid; grid-template-columns: 1.55fr 1fr; gap: 2vw; min-height: 0; }
 .tvcourts { display: grid; gap: 1.6vh; grid-auto-rows: 1fr; min-height: 0; }
-.tvcourts .court { padding: 1.6vh 1.4vw 1.8vh; border-radius: 1.6vh; }
+.tvcourts .court { padding: 1.6vh 1.4vw 3vh; border-radius: 1.6vh; }
 .tvcourts .court .ch { font-size: 2.2vh; }
 .tvcourts .court .half .tn { font-size: 3.2vh; min-height: 2.3em; }
 .tvcourts .court .half .pts { font-size: 9vh; }

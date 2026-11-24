@@ -187,3 +187,32 @@ test('Fluo : 15 équipes (5 poules) → la dernière poule de niveau donne direc
   assert.deepEqual(Object.values(t.pools2).map((p) => p.length), [3, 3, 3, 3, 3]);
   assert.deepEqual(t.directPlaces, { pool: 'N5', from: 13 });
 });
+
+test('équipe en retard : son prochain match est échangé avec un match plus tardif, sans conflit', () => {
+  const base = buildDemo('multisport');
+  base.format = { type: 'roundrobin', legs: 1 };
+  const t = E.buildSchedule(base);
+  const late = t.teams.find((x) => { const sl = t.matches.filter((m) => m.teamA === x.id || m.teamB === x.id).map((m) => m.slot); return !sl.includes(0) === false && [1,2,3,4,5,6].some((k) => !sl.includes(k)); }).id;
+  const before = t.matches.filter((m) => m.teamA === late || m.teamB === late).map((m) => m.slot).sort((a, b) => a - b)[0];
+  const r = E.postponeTeam(t, late);
+  assert.ok(!r.error, r.error);
+  const after = t.matches.filter((m) => m.teamA === late || m.teamB === late).map((m) => m.slot).sort((a, b) => a - b)[0];
+  assert.ok(after > before);
+  for (let s = 0; s < 7; s++) {
+    const ids = t.matches.filter((m) => m.slot === s).flatMap((m) => [m.teamA, m.teamB]);
+    assert.equal(new Set(ids).size, ids.length, `conflit au créneau ${s}`);
+    const courts = t.matches.filter((m) => m.slot === s).map((m) => m.courtId);
+    assert.equal(new Set(courts).size, courts.length);
+  }
+});
+
+test('équipe en retard sans repos plus tard : son match part en fin de phase', () => {
+  const base = buildDemo('multisport');
+  base.format = { type: 'roundrobin', legs: 1 };
+  const t = E.buildSchedule(base);
+  const late = t.teams[0].id; // au repos à la 1re rotation, puis joue tout le temps
+  const r = E.postponeTeam(t, late);
+  assert.ok(!r.error && r.to > r.from);
+  const slots = {};
+  for (const m of t.matches) for (const x of [m.teamA, m.teamB]) { const k = m.slot + x; assert.ok(!slots[k]); slots[k] = 1; }
+});

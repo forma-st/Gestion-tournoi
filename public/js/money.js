@@ -14,7 +14,7 @@ export function teamDue(t, team) {
   const r = t.registration || {};
   const fee = +r.fee || 0;
   if (!fee) return 0;
-  if (r.feeMode === 'player') return fee * Math.max(team.players?.length || 0, +r.minPlayers || 1);
+  if (r.feeMode === 'player') return fee * Math.max(team.present?.length || team.players?.length || 0, +r.minPlayers || 1);
   return fee;
 }
 

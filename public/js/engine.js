@@ -478,7 +478,18 @@ export function schedule(t, matches) {
   // Les finales en dernier, sur le terrain principal
   let courtIdx = 0;
   for (const d of Object.keys(levels).sort((a, b) => a - b)) {
-    const list = levels[d].sort((a, b) => (a.bracketId === 'main' ? 0 : 1) - (b.bracketId === 'main' ? 0 : 1) || a.id.localeCompare(b.id));
+    // Matchs de classement : des dernières places vers la finale (jouée en dernier, terrain 1)
+    const list = levels[d].sort((a, b) => (a.place && b.place ? b.place - a.place : 0) || (a.bracketId === 'main' ? 0 : 1) - (b.bracketId === 'main' ? 0 : 1) || a.id.localeCompare(b.id));
+    if (list.every((m) => m.place)) {
+      const per = nC, n = list.length, first = n % per || per;
+      list.forEach((m, i) => {
+        const row = i < first ? 0 : 1 + Math.floor((i - first) / per);
+        const col = i < first ? per - first + i : (i - first) % per;
+        m.slot = slot + row; m.courtId = courts[per - 1 - col].id;
+      });
+      slot += Math.ceil(n / per);
+      continue;
+    }
     courtIdx = 0;
     for (const m of list) {
       if (courtIdx >= nC) { slot++; courtIdx = 0; }
@@ -494,7 +505,7 @@ export function schedule(t, matches) {
  * Arbitrage par les équipes au repos : pour chaque match, une équipe libre sur ce créneau
  * (de la même poule si possible), en équilibrant le nombre d'arbitrages.
  */
-export function assignReferees(t, matches) {
+export function assignReferees(t, matches, onlySlots = null) {
   const confirmed = t.teams.filter((x) => x.status === 'confirmed').map((x) => x.id);
   const poolOf = {};
   for (const m of matches) if (m.phase === 'pool') { poolOf[m.teamA] = m.pool; poolOf[m.teamB] = m.pool; }
@@ -503,6 +514,7 @@ export function assignReferees(t, matches) {
   for (const m of matches) if (m.phase === 'pool' && m.slot != null) (bySlot[m.slot] ??= []).push(m);
   const playingAt = (s) => new Set((bySlot[s] || []).flatMap((m) => [m.teamA, m.teamB]));
   for (const s of Object.keys(bySlot).map(Number).sort((a, b) => a - b)) {
+    if (onlySlots && !onlySlots.includes(s)) { for (const m of bySlot[s]) if (m.referee) count[m.referee] = (count[m.referee] || 0) + 1; continue; }
     const busy = playingAt(s);
     const used = new Set();
     for (const m of bySlot[s]) {
@@ -812,4 +824,62 @@ export function scheduleStats(t) {
     (courtPerTeam[id] ??= {})[m.courtId] = (courtPerTeam[id][m.courtId] || 0) + 1;
   }
   return { matches: playable.length, slots, end: slotTime(t, slots), perTeam, courtPerTeam };
+}
+
+/**
+ * Équipe en retard : décale son prochain match en l'échangeant avec un match plus tardif
+ * (même phase, pas encore joué) qui ne crée aucun conflit. Renvoie {moved:[...]} ou {error}.
+ */
+export function postponeTeam(t, teamId, { minDelay = 1 } = {}) {
+  const { resolved } = resolve(t);
+  const teamsOf = (m) => [resolved[m.id]?.a, resolved[m.id]?.b].filter(Boolean);
+  const playing = (slot, except) => new Set(t.matches.filter((m) => m.slot === slot && m !== except && m.status !== 'bye').flatMap(teamsOf));
+  const mine = t.matches.filter((m) => m.status === 'scheduled' && teamsOf(m).includes(teamId)).sort((a, b) => a.slot - b.slot);
+  const m1 = mine[0];
+  if (!m1) return { error: 'Cette équipe n’a plus de match à venir' };
+  const live = t.matches.filter((m) => m.status === 'live' || m.status === 'done').map((m) => m.slot);
+  const cands = t.matches
+    .filter((m) => m !== m1 && m.status === 'scheduled' && m.phase === m1.phase && m.slot >= m1.slot + minDelay && teamsOf(m).length === 2 && !teamsOf(m).includes(teamId))
+    .sort((a, b) => a.slot - b.slot || (a.courtId === m1.courtId ? -1 : 1));
+  for (const m2 of cands) {
+    const at1 = playing(m1.slot, m1), at2 = playing(m2.slot, m2);
+    if (teamsOf(m2).some((x) => at1.has(x))) continue; // les équipes de m2 sont libres au créneau de m1 ?
+    if (teamsOf(m1).some((x) => at2.has(x))) continue; // et celles de m1 au créneau de m2 ?
+    if (live.includes(m1.slot) && t.matches.some((m) => m.slot === m1.slot && m.courtId === m1.courtId && m !== m1 && m.status !== 'scheduled')) continue;
+    const s1 = m1.slot, c1 = m1.courtId;
+    m1.slot = m2.slot; m1.courtId = m2.courtId;
+    m2.slot = s1; m2.courtId = c1;
+    if (t.referees === 'teams') assignReferees(t, t.matches, [m1.slot, m2.slot]);
+    return { moved: [m1.id, m2.id], from: s1, to: m1.slot };
+  }
+  // Sinon : échanger toute la rotation avec une rotation plus tardive où l'équipe est au repos
+  const slotMs = (x) => t.matches.filter((m) => m.slot === x && m.status !== 'bye');
+  const untouched = (x) => slotMs(x).length > 0 && slotMs(x).every((m) => m.status === 'scheduled' && m.phase === m1.phase);
+  if (untouched(m1.slot)) {
+    const slots = [...new Set(t.matches.map((m) => m.slot).filter((x) => x != null && x > m1.slot))].sort((a, b) => a - b);
+    for (const s2 of slots) {
+      if (!untouched(s2) || slotMs(s2).some((m) => teamsOf(m).includes(teamId) || teamsOf(m).length < 2)) continue;
+      const s1 = m1.slot;
+      const A = slotMs(s1), Bm = slotMs(s2);
+      A.forEach((m) => { m.slot = s2; });
+      Bm.forEach((m) => { m.slot = s1; });
+      return { moved: [...A, ...Bm].map((m) => m.id), from: s1, to: s2, rotation: true };
+    }
+  }
+  // Dernier recours : premier terrain libre plus tard où les deux équipes sont libres, sinon une rotation de plus en fin de phase
+  const courts = t.courts.filter((c) => c.active !== false).map((c) => c.id);
+  const phaseSlots = t.matches.filter((m) => m.phase === m1.phase && m.slot != null).map((m) => m.slot);
+  const lastPhase = Math.max(...phaseSlots);
+  for (let s2 = m1.slot + minDelay; s2 <= lastPhase; s2++) {
+    const used = t.matches.filter((m) => m.slot === s2).map((m) => m.courtId);
+    const free = courts.find((c) => !used.includes(c));
+    if (!free || teamsOf(m1).some((x) => playing(s2, m1).has(x))) continue;
+    const from = m1.slot;
+    m1.slot = s2; m1.courtId = free;
+    return { moved: [m1.id], from, to: s2 };
+  }
+  const from = m1.slot;
+  for (const m of t.matches) if (m.slot != null && m.slot > lastPhase) m.slot++;
+  m1.slot = lastPhase + 1; m1.courtId = courts[0];
+  return { moved: [m1.id], from, to: m1.slot, appended: true };
 }

@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
-import { buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid } from '../engine.js';
+import { buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam } from '../engine.js';
 import { shell } from './shell.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS } from './settings.js';
 import { compareTable } from './home.js';
@@ -12,6 +12,7 @@ import { feesSummary, teamDue, charityTotals } from '../money.js';
 const TABS = [
   ['apercu', 'Aperçu'],
   ['equipes', 'Équipes'],
+  ['accueil', 'Accueil'],
   ['planning', 'Format & planning'],
   ['matchs', 'Matchs'],
   ['classement', 'Classements'],
@@ -128,6 +129,37 @@ const PANELS = {
         <a class="btn ghost" href="#/print/${t.id}/feuilles" target="_blank">Feuilles de match papier</a>
         <a class="btn ghost" href="#/p/${t.id}" target="_blank">Page de promotion</a>
       </div></div>`;
+  },
+
+  accueil(ctx) {
+    const { t, resolved } = ctx;
+    const r = t.registration;
+    const q = (ctx.route.query.q || '').toLowerCase();
+    const teams = t.teams.filter((x) => x.status === 'confirmed' && (!q || x.name.toLowerCase().includes(q) || (x.players || []).join(' ').toLowerCase().includes(q))).sort((a, b) => (a.checkedIn ? 1 : 0) - (b.checkedIn ? 1 : 0) || a.name.localeCompare(b.name));
+    const all = t.teams.filter((x) => x.status === 'confirmed');
+    const fs = feesSummary(t);
+    const nextOf = (id) => t.matches.filter((m) => m.status === 'scheduled' && [resolved[m.id]?.a, resolved[m.id]?.b].includes(id)).sort((a, b) => a.slot - b.slot)[0];
+    return html`<div class="row between"><h2 style="margin:0">Accueil des équipes</h2><span class="muted">${all.filter((x) => x.checkedIn).length}/${all.length} équipes complètes · ${euros(fs.paid + fs.extra)} encaissés</span></div>
+      <form data-form="search" class="row" style="margin:.8rem 0"><input type="search" name="q" value="${ctx.route.query.q || ''}" placeholder="Rechercher une équipe ou un joueur" style="max-width:420px"><button class="btn ghost sm">Rechercher</button></form>
+      <div class="stack">${teams.map((x) => {
+        const players = x.players || [];
+        const present = x.present || [];
+        const n = present.length;
+        const enough = n >= (r.minPlayers || 1);
+        const due = teamDue(t, x);
+        const paid = x.payment === 'paid' || x.payment === 'onsite' || x.payment === 'free';
+        const nm = nextOf(x.id);
+        return html`<div class="card" data-team="${x.id}" style="border-left:6px solid ${x.checkedIn ? 'var(--win)' : x.late ? 'var(--ball)' : 'var(--line)'}">
+          <div class="row between"><div><h3 style="margin:0">${x.name}</h3><span class="muted small">${x.captain}${x.phone ? html` · <a href="tel:${x.phone.replace(/\s/g, '')}">${x.phone}</a>` : ''}${nm ? ` · prochain match ${slotTime(t, nm.slot)}` : ''}</span></div>
+            <div class="row">${x.checkedIn ? html`<span class="pill ok">Équipe complète</span>` : n ? html`<span class="pill warn">${n}/${r.minPlayers} joueurs</span>` : html`<span class="pill">Pas encore arrivée</span>`}${x.late ? html`<span class="pill warn">En retard</span>` : ''}</div></div>
+          <div class="row" style="margin:.7rem 0">${players.map((p) => html`<button class="btn ${present.includes(p) ? '' : 'ghost'} sm" data-act="present" data-p="${p}" aria-pressed="${present.includes(p)}">${present.includes(p) ? '✓ ' : ''}${p}</button>`)}<button class="btn ghost sm" data-act="add-player">+ Joueur</button></div>
+          <div class="row between">
+            <div class="row">${r.fee ? html`<b class="num" style="font-size:1.4rem">${euros(due)}</b>${r.feeMode === 'player' ? html`<span class="hint">${n || players.length} joueurs × ${euros(r.fee)}</span>` : ''}
+              ${paid ? html`<span class="pill ok">${x.payment === 'free' ? 'Offert' : `Payé${x.payMethod ? ` (${({ cash: 'espèces', card: 'carte', lydia: 'Lydia', check: 'chèque', online: 'en ligne' })[x.payMethod] || x.payMethod})` : ''}`}</span>${x.extraPaid ? html`<span class="pill ok">+ ${euros(x.extraPaid)} de don</span>` : ''}<button class="linkbtn small" data-act="unpay">Annuler</button>`
+              : html`<button class="btn sm" data-act="pay" data-m="cash">Espèces</button><button class="btn sm" data-act="pay" data-m="card">Carte</button><button class="btn ghost sm" data-act="pay" data-m="lydia">Lydia</button>`}` : ''}</div>
+            <div class="row">${!x.checkedIn ? html`<button class="btn ${x.late ? 'ball' : 'ghost'} sm" data-act="late">${x.late ? 'Décaler encore ses matchs' : 'En retard : décaler ses matchs'}</button>` : ''}${!enough && n ? html`<button class="linkbtn small" data-act="force-in">Valider quand même</button>` : ''}</div>
+          </div></div>`;
+      })}${!teams.length ? html`<p class="muted">Aucune équipe${q ? ' ne correspond' : ''}.</p>` : ''}</div>`;
   },
 
   equipes(ctx) {
@@ -432,6 +464,7 @@ async function onSubmit(ctx, e) {
     await save(ctx, (d) => { (d.announcements ??= []).push({ id: uid(5), text, at: new Date().toISOString() }); d.announcements = d.announcements.slice(-20); }, 'Annonce envoyée');
     ctx.rerender();
   }
+  if (f === 'search') { location.hash = `#/admin/${ctx.t.id}/accueil?q=${encodeURIComponent(e.target.q.value)}`; return; }
   if (f === 'baseurl') { store.setBaseUrl(e.target.url.value.trim()); toast('Adresse enregistrée', 'ok'); ctx.rerender(); }
 }
 
@@ -446,6 +479,38 @@ async function onClick(ctx, e) {
 
   if (await barActions(ctx, act, b, (fn, msg) => save(ctx, fn, msg).then(rr))) return;
   switch (act) {
+    case 'present': case 'add-player': case 'pay': case 'unpay': case 'late': case 'force-in': {
+      const x = t.teams.find((y) => y.id === tid);
+      if (act === 'add-player') {
+        const r = await modal({ title: `Ajouter un joueur à ${x.name}`, body: html`<label class="f">Prénom et nom<input type="text" name="p" required maxlength="60"></label>`, ok: 'Ajouter et pointer' });
+        if (!r) return;
+        await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); y.players = [...(y.players || []), r.p.trim()]; y.present = [...(y.present || []), r.p.trim()]; y.checkedIn = y.present.length >= (d.registration.minPlayers || 1); });
+        return rr();
+      }
+      if (act === 'pay') {
+        const due = teamDue(t, x);
+        const r = await modal({ title: `Encaisser ${x.name}`, body: html`<p class="num" style="font-size:2.6rem;text-align:center;margin:0">${euros(due)}</p>${b.dataset.m === 'card' ? html`<p class="hint" style="text-align:center;margin:0">Tapez ce montant sur le TPE, validez ici une fois accepté.</p>` : ''}
+          <label class="f">Don en plus (facultatif, €)<input type="number" name="extra" min="0" step="1" value=""></label>`, ok: 'Paiement reçu' });
+        if (!r) return;
+        await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); y.payment = 'onsite'; y.payMethod = b.dataset.m; y.extraPaid = +r.extra || 0; y.paidAt = new Date().toISOString(); }, 'Paiement enregistré');
+        return rr();
+      }
+      if (act === 'late') {
+        let res;
+        await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); y.late = true; res = postponeTeam(d, tid); if (res.error) throw new Error(res.error); });
+        if (res && !res.error) toast(res.rotation ? `Rotations ${res.from + 1} et ${res.to + 1} échangées : ${x.name} joue plus tard` : `Match de ${x.name} décalé à ${slotTime(t, res.to)}${res.appended ? ' (rotation ajoutée en fin de phase)' : ''}`, 'ok');
+        return rr();
+      }
+      await save(ctx, (d) => {
+        const y = d.teams.find((z) => z.id === tid);
+        if (act === 'present') { const p = b.dataset.p; y.present = (y.present || []).includes(p) ? y.present.filter((z) => z !== p) : [...(y.present || []), p]; }
+        if (act === 'unpay') { y.payment = 'unpaid'; y.extraPaid = 0; delete y.payMethod; }
+        if (act === 'force-in') y.forceIn = true;
+        y.checkedIn = !!y.forceIn || (y.present || []).length >= (d.registration.minPlayers || 1);
+        if (y.checkedIn) y.late = false;
+      });
+      return rr();
+    }
     case 'filter': location.hash = `#/admin/${t.id}/matchs?f=${b.dataset.f}`; break;
     case 'add-break': await save(ctx, (d) => { d.breaks.push({ afterSlot: 3, minutes: 30, label: 'Pause' }); }); rr(); break;
     case 'rm-break': await save(ctx, (d) => { d.breaks.splice(+b.dataset.i, 1); }); rr(); break;

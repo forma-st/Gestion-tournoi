@@ -52,7 +52,7 @@ export function courtTile(ctx, court, { big = false, link = '' } = {}) {
       <div class="half"><div class="tn">${s.nameA}</div><div class="pts">${live ? cur[0] : '–'}</div>${live && sc.mode === 'points' && sc.setsToWin > 1 ? html`<div class="sets">Sets ${r.setsA}</div>` : ''}</div>
       <div class="half"><div class="tn">${s.nameB}</div><div class="pts">${live ? cur[1] : '–'}</div>${live && sc.mode === 'points' && sc.setsToWin > 1 ? html`<div class="sets">Sets ${r.setsB}</div>` : ''}</div>
     </div>
-    <div class="foot">${live ? (sc.mode === 'time' ? html`<span data-timer="${esc(JSON.stringify(m.timer || null))}" data-dur="${sc.durationMin}">⏱</span>` : html`<span>Set ${sets.length || 1}</span>`) : html`<span>À suivre · ${matchTime(t, m)}</span>`}${s.referee ? html`<span>Arbitre : ${teamName(t, s.referee)}</span>` : ''}</div>`;
+    <div class="foot">${live ? (sc.mode === 'time' ? html`<span data-timer="${JSON.stringify(m.timer || null)}" data-dur="${sc.durationMin}">⏱</span>` : html`<span>Set ${sets.length || 1}</span>`) : html`<span>À suivre · ${matchTime(t, m)}</span>`}${s.referee ? html`<span>Arbitre : ${teamName(t, s.referee)}</span>` : ''}</div>`;
   }
   const tag = link ? 'a' : 'div';
   return html`${raw(`<${tag} ${link ? `href="${esc(link)}" style="text-decoration:none;--c:${esc(court.color)}"` : `style="--c:${esc(court.color)}"`} class="court ${light}">`)}
@@ -151,8 +151,8 @@ function levelsView(ctx, me) {
     ${final ? html`<div class="card"><h3>Classement final</h3><ol style="margin:0;padding-left:1.6rem;columns:2 220px">${(places || []).map((id) => html`<li ${id === me ? raw('style="font-weight:700"') : ''}>${id ? teamName(t, id) : '…'}</li>`)}</ol></div>` : ''}
     ${placeMs.length ? html`<div class="card"><h3>Matchs de classement</h3>${placeMs.map((m) => matchRow(ctx, m, { me }))}</div>` : ''}
     ${Object.keys(t.pools2 || {}).length ? html`<div class="card"><h3>Phase 2 · poules de niveau</h3><p class="hint">Formées automatiquement à la fin du brassage : les meilleurs ensemble, puis les suivants… Chaque paire de poules se retrouve ensuite pour les matchs de classement.</p>
-      <div class="grid2">${Object.keys(t.pools2).map((P) => html`<div><b>Poule ${P.slice(1)}</b>${standings2[P] ? standingsTable(ctx, P, { me, compact: true, rows: standings2[P] }) : html`<p class="muted small">${(members2[P] || []).some(Boolean) ? (members2[P] || []).map((id) => (id ? teamName(t, id) : '?')).join(', ') : 'En attente de la fin du brassage'}</p>`}</div>`)}</div></div>` : ''}
-    <div class="card"><h3>Phase 1 · brassage</h3><div class="grid2">${Object.keys(t.pools || {}).map((L) => html`<div><b>Poule ${L}</b>${standingsTable(ctx, L, { me, compact: true })}</div>`)}</div></div>`;
+      <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">${Object.keys(t.pools2).map((P) => html`<div><b>Poule ${P.slice(1)}</b>${standings2[P] ? standingsTable(ctx, P, { me, compact: true, rows: standings2[P] }) : html`<p class="muted small">${(members2[P] || []).some(Boolean) ? (members2[P] || []).map((id) => (id ? teamName(t, id) : '?')).join(', ') : 'En attente de la fin du brassage'}</p>`}</div>`)}</div></div>` : ''}
+    <div class="card"><h3>Phase 1 · brassage</h3><div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">${Object.keys(t.pools || {}).map((L) => html`<div><b>Poule ${L}</b>${standingsTable(ctx, L, { me, compact: true })}</div>`)}</div></div>`;
 }
 
 /** Classement par sport (multisport) : utile pour les prix « meilleure équipe de foot »… */
