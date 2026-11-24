@@ -1,0 +1,195 @@
+import { store } from '../store.js';
+import { html, raw, toStr, toast, fmtDate, euros, plural, $, $$ } from '../ui.js';
+import { newTournament, buildSchedule, uid, SPORTS } from '../engine.js';
+import { buildDemo, simulate, DEMOS } from '../demo.js';
+import { shell } from './shell.js';
+import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
+
+// ------------------------------------------------------------------ accueil
+export async function homeView() {
+  const list = await store.list();
+  const demoCourts = [
+    { c: '#F5B700', light: true, s: '🏐 Volley', a: 'Les Smasheurs', b: 'Block Party', pa: 6, pb: 4, t: '08:12' },
+    { c: '#00A6D6', s: '⚽ Football', a: 'Filet Mignon', b: 'Ace Ventura', pa: 2, pb: 2, t: '05:40' },
+    { c: '#F2545B', s: '🏀 Basket', a: 'Les Manchettes', b: 'Service Gagnant', pa: 14, pb: 9, t: '10:03' },
+  ];
+  return {
+    title: '',
+    html: html`${shell()}
+    <section class="hero"><div class="in">
+      <div>
+        <h1>Votre tournoi, du premier service au <mark>podium</mark>.</h1>
+        <p class="lead">Poules, rotations multisport, phases finales et repêchage. Les joueurs saisissent les scores sur leur téléphone par QR code, le grand écran suit en direct. Fonctionne même sans Internet.</p>
+        <div class="row"><a class="btn ball" href="#/new">Créer un tournoi</a><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="demo" data-kind="multisport" data-sim="3">Voir le Téléthon en direct</button></div>
+      </div>
+      <div class="court-art stack" aria-hidden="true">
+        ${demoCourts.map((d, i) => html`<div class="court ${d.light ? 'light' : ''}" style="--c:${d.c}">
+          <div class="ch"><span>Terrain ${i + 1} · ${d.s}</span></div>
+          <div class="halves"><div class="half"><div class="tn">${d.a}</div><div class="pts">${d.pa}</div></div><div class="half"><div class="tn">${d.b}</div><div class="pts">${d.pb}</div></div></div>
+          <div class="foot"><span>⏱ ${d.t}</span></div></div>`)}
+      </div>
+    </div></section>
+    <main class="wrap">
+      <section>
+        <div class="row between"><h2>Mes tournois</h2><a class="btn" href="#/new">Nouveau tournoi</a></div>
+        ${list.length ? html`<div class="tlist">${list.map((t) => html`<a class="tcard" style="--c:${t.theme || '#0B6E2E'}" href="#/admin/${t.id}">
+            <h3>${t.name}</h3>
+            <span class="muted">${fmtDate(t.date)}${t.venue ? ` · ${t.venue}` : ''}</span>
+            <div class="row"><span class="pill">${plural(Array.isArray(t.teams) ? t.teams.filter((x) => x.status === 'confirmed').length : t.teams, 'équipe')}</span><span class="pill">${plural(Array.isArray(t.courts) ? t.courts.length : t.courts, 'terrain')}</span>${(t.registration?.fee ?? t.fee) ? html`<span class="pill">${euros(t.registration?.fee ?? t.fee)} / équipe</span>` : ''}</div>
+          </a>`)}</div>`
+        : html`<div class="empty"><p><b>Aucun tournoi pour l’instant.</b></p><p>Créez le vôtre en quelques minutes ou partez d’un exemple ci-dessous.</p></div>`}
+      </section>
+      <section class="section">
+        <h2>Partir d’un exemple</h2>
+        <div class="tiles">
+          ${Object.entries(DEMOS).map(([k, label]) => html`<div class="tile" style="cursor:default"><b>${label.split(' : ')[0]}</b><small>${label.split(' : ')[1]}</small>
+            <div class="row" style="margin-top:.5rem"><button class="btn sm" data-act="demo" data-kind="${k}" data-sim="-1">Créer</button>${k === 'interne' ? '' : html`<button class="btn ghost sm" data-act="demo" data-kind="${k}" data-sim="${k === 'fluo' ? 7 : 3}">Avec des matchs joués</button>`}</div></div>`)}
+        </div>
+      </section>
+      <section class="section">
+        <h2>Tout le tournoi dans un seul outil</h2>
+        <div class="feature-list">
+          ${[
+            ['🔁', 'Rotations multisport', 'Chaque équipe joue autant de fois chaque sport. Une seule équipe au repos, qui arbitre.'],
+            ['📱', 'Feuilles de match par QR code', 'Un QR code par terrain : les joueurs comptent les points sur leur téléphone, le classement suit.'],
+            ['📺', 'Grand écran', 'Terrains en cours, prochains matchs et classement défilent sur la TV de la salle.'],
+            ['🏆', 'Poules, tableaux, repêchage', 'Poules puis phases finales, consolante, double élimination avec tableau de repêchage.'],
+            ['⏱️', 'Aux points ou au temps', 'Sets de 25, 2 sets de 21, ou matchs chronométrés : chaque terrain a sa règle.'],
+            ['💳', 'Inscriptions et paiement', 'Formulaire en ligne, liste d’attente, paiement HelloAsso, Stripe ou sur place.'],
+            ['📣', 'Page de promotion', 'Une page à partager et une affiche prête pour Instagram et Facebook.'],
+            ['📶', 'Hors ligne', 'Un ordinateur suffit : le réseau local du gymnase fait le reste, sans Internet.'],
+          ].map(([ic, b, s]) => html`<div class="feature"><span class="ic">${ic}</span><b>${b}</b><span>${s}</span></div>`)}
+        </div>
+      </section>
+      <p class="small muted section">${store.mode === 'local' ? 'Mode autonome : vos tournois sont enregistrés dans ce navigateur. Lancez le serveur Rotation pour partager les scores entre téléphones.' : 'Connecté au serveur Rotation : les scores sont partagés en direct entre tous les appareils du réseau.'}</p>
+    </main>`,
+    mount(root) {
+      root.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-act=demo]');
+        if (!b) return;
+        b.disabled = true;
+        try {
+          let t = buildSchedule(buildDemo(b.dataset.kind));
+          t.id = `${b.dataset.kind === 'multisport' ? 'telethon' : b.dataset.kind}-${uid(4)}`;
+          if (b.dataset.kind === 'interne') t = { ...buildDemo('interne'), id: `interne-${uid(4)}` };
+          else if (+b.dataset.sim >= 0) { simulate(t, +b.dataset.sim); t.status = 'live'; }
+          else t.status = 'ready';
+          await store.create(t);
+          toast('Tournoi d’exemple créé', 'ok');
+          location.hash = `#/admin/${t.id}${b.dataset.kind === 'interne' ? '/joueurs' : ''}`;
+        } catch (err) { toast(err.message, 'err'); b.disabled = false; }
+      });
+    },
+  };
+}
+
+// ------------------------------------------------------------------ assistant de création
+const STEPS = [
+  ['essentiel', 'L’essentiel', sectionEssentials],
+  ['terrains', 'Terrains', sectionCourts],
+  ['format', 'Format', sectionFormat],
+  ['regles', 'Règles', sectionRules],
+  ['inscriptions', 'Inscriptions', sectionRegistration],
+  ['recap', 'Récapitulatif', null],
+];
+
+function getDraft() {
+  try { const d = JSON.parse(sessionStorage.getItem('rot:draft')); if (d) return d; } catch { /* */ }
+  const t = newTournament({ status: 'draft' });
+  saveDraft(t);
+  return t;
+}
+function saveDraft(t) { try { sessionStorage.setItem('rot:draft', JSON.stringify(t)); } catch { /* */ } }
+let expected = 0;
+
+export async function wizardView(ctx) {
+  const t = getDraft();
+  const stepKey = ctx.route.params[0] || 'essentiel';
+  const idx = Math.max(0, STEPS.findIndex((s) => s[0] === stepKey));
+  const [, label, section] = STEPS[idx];
+  const p = previewDay(t, expected || t.registration.maxTeams);
+  const compare = idx === 2 && t.format.type === 'roundrobin' ? formulaCompare({ ...t, registration: { ...t.registration, maxTeams: expected || t.registration.maxTeams } }) : null;
+
+  const body = section ? section(t) : recap(t, p);
+  return {
+    title: 'Nouveau tournoi',
+    html: html`${shell({ title: 'Nouveau tournoi' })}
+    <main class="wrap">
+      <nav class="stepper" aria-label="Étapes">${STEPS.map(([k, l], i) => html`<a href="#/new/${k}" class="${i === idx ? 'on' : i < idx ? 'done' : ''}" ${i === idx ? raw('aria-current="step"') : ''}><b>${i < idx ? '✓' : i + 1}</b>${l}</a>`)}</nav>
+      <div class="wizard section" style="margin-top:1.2rem">
+        <form class="card stack" id="wform" onsubmit="return false">
+          <h2>${label}</h2>
+          ${body}
+          ${compare ? compareTable(compare, t) : ''}
+          <div class="row between" style="margin-top:.5rem">
+            ${idx > 0 ? html`<a class="btn ghost" href="#/new/${STEPS[idx - 1][0]}">Précédent</a>` : html`<button type="button" class="btn ghost" data-act="reset">Recommencer</button>`}
+            ${idx < STEPS.length - 1 ? html`<a class="btn" href="#/new/${STEPS[idx + 1][0]}">Suivant</a>` : html`<button type="button" class="btn ball" data-act="create">Créer le tournoi</button>`}
+          </div>
+        </form>
+        ${previewCard(t, p, expected || t.registration.maxTeams)}
+      </div>
+    </main>`,
+    mount(root) {
+      root.addEventListener('change', (e) => {
+        if (e.target.matches('[data-preview-teams]')) { expected = Math.max(2, +e.target.value || 2); ctx.rerender(); return; }
+        if (!e.target.dataset.path) return;
+        applyField(t, e.target);
+        if (e.target.dataset.path === 'registration.maxTeams') expected = 0;
+        saveDraft(t);
+        ctx.rerender();
+      });
+      root.addEventListener('click', async (e) => {
+        const a = e.target.closest('[data-act]');
+        if (!a) return;
+        if (a.dataset.act === 'add-break') { t.breaks.push({ afterSlot: 3, minutes: 30, label: 'Pause' }); saveDraft(t); ctx.rerender(); }
+        if (a.dataset.act === 'rm-break') { t.breaks.splice(+a.dataset.i, 1); saveDraft(t); ctx.rerender(); }
+        if (a.dataset.act === 'pick-formula') { t.format = { type: 'roundrobin', legs: +a.dataset.legs, finalsTop: +a.dataset.top, thirdPlace: true }; saveDraft(t); ctx.rerender(); }
+        if (a.dataset.act === 'reset') { sessionStorage.removeItem('rot:draft'); ctx.rerender(); }
+        if (a.dataset.act === 'create') {
+          if (!t.name.trim()) return toast('Donnez un nom au tournoi', 'err');
+          a.disabled = true;
+          try {
+            t.id = slug(t.name) + '-' + uid(4);
+            t.status = 'ready';
+            await store.create(t);
+            sessionStorage.removeItem('rot:draft');
+            toast('Tournoi créé', 'ok');
+            location.hash = `#/admin/${t.id}/equipes`;
+          } catch (err) { toast(err.message, 'err'); a.disabled = false; }
+        }
+      });
+    },
+  };
+}
+
+const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'tournoi';
+
+export function compareTable(opts, t) {
+  return html`<div class="card flat stack">
+    <div><h3 style="margin:0">Trouver la bonne durée</h3><p class="hint" style="margin:0">Même nombre d’équipes et de terrains, plusieurs formules. Choisissez celle qui tient dans votre journée.</p></div>
+    <div class="tscroll"><table class="t">
+      <thead><tr><th>Formule</th><th class="n">Matchs</th><th class="n">Par équipe</th><th class="n">Durée</th><th class="n">Fin</th><th></th></tr></thead>
+      <tbody>${opts.map((o) => {
+        const on = (t.format.legs || 1) === o.legs && (t.format.finalsTop || 0) === o.top;
+        return html`<tr class="${on ? 'me' : ''}">
+          <td><b>${o.legs === 1 ? 'Chacun se rencontre 1 fois' : `Chacun se rencontre ${o.legs} fois`}</b>${o.top ? ' + demi-finales et finale' : ''}<br><span class="hint">${new Set(t.courts.map((c) => c.sport)).size < 2 ? (o.legs === 2 ? 'aller-retour' : o.legs === 3 ? 'trois fois' : 'une fois') : o.legs === 1 ? 'dans un seul sport, réparti équitablement' : `dans ${o.legs} sports différents`}</span></td>
+          <td class="n">${o.matches}</td><td class="n">${o.minM === o.maxM ? o.minM : `${o.minM}–${o.maxM}`}${o.top ? '+' : ''}</td>
+          <td class="n">${Math.floor(o.playMin / 60)} h ${String(o.playMin % 60).padStart(2, '0')}</td><td class="n"><b>${o.end}</b></td>
+          <td>${on ? html`<span class="pill ok">Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
+      })}</tbody></table></div>
+  </div>`;
+}
+
+function recap(t, p) {
+  const f = FORMATS[t.format.type];
+  return html`<div class="stack">
+    <dl class="grid2" style="margin:0">
+      <div><dt class="muted small">Tournoi</dt><dd style="margin:0"><b>${t.name}</b><br>${fmtDate(t.date)} à ${t.startTime}${t.venue ? `, ${t.venue}` : ''}</dd></div>
+      <div><dt class="muted small">Format</dt><dd style="margin:0"><b>${f.label}</b>${t.format.type === 'roundrobin' && t.format.legs > 1 ? ` · ${t.format.legs} manches` : ''}${t.format.finalsTop ? ` · phase finale à ${t.format.finalsTop}` : ''}${t.format.type === 'pools' ? ` · ${t.format.pools} poules, ${t.format.qualifiers} qualifiés` : ''}</dd></div>
+      <div><dt class="muted small">Terrains</dt><dd style="margin:0">${t.courts.map((c) => html`<span class="pill cc" style="--c:${c.color};margin:0 .3rem .3rem 0">${SPORTS[c.sport]?.icon} ${c.name}</span>`)}</dd></div>
+      <div><dt class="muted small">Inscriptions</dt><dd style="margin:0">${t.registration.open ? 'Ouvertes en ligne' : 'Saisie par l’organisateur'} · ${t.registration.maxTeams} équipes max · ${t.registration.fee ? euros(t.registration.fee) + ' par équipe' : 'gratuit'}</dd></div>
+    </dl>
+    ${p ? html`<p>Avec ${p.teams} équipes : <b>${p.matches} matchs</b> en ${p.slots} rotations, de ${p.start} à <b>${p.end}</b>.</p>` : ''}
+    <p class="hint">Votre code organisateur : <b class="num" style="font-size:1.3rem;color:var(--ink)">${t.adminPin}</b>. Notez-le : il protège l’administration du tournoi sur le serveur.</p>
+  </div>`;
+}

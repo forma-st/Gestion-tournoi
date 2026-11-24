@@ -1,0 +1,14 @@
+{
+  "name": "Rotation – tournois de volley et multisport",
+  "short_name": "Rotation",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F5F7F4",
+  "theme_color": "#0F2A17",
+  "lang": "fr",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

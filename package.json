@@ -1,0 +1,13 @@
+{
+  "name": "rotation-tournoi",
+  "version": "1.0.0",
+  "description": "Gestion de tournois de volley et multisport : planning, QR codes, grand écran, buvette, cagnotte. Hors ligne.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED"
+}
