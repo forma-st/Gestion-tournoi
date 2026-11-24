@@ -275,6 +275,7 @@ async function api(req, res, url) {
     const ok = isAdmin(req, t)
       || (b.token && (safeEq(String(b.token), String(m.token)) || (court?.token && safeEq(String(b.token), String(court.token)))))
       || (pin && t.volunteerPin && safeEq(pin, String(t.volunteerPin)))
+      || t.openScoring === true
       || (team && [m.referee, b.teamA, b.teamB, m.teamA, m.teamB].includes(team.id));
     if (!ok) return send(res, 403, { error: 'Lien de feuille de match invalide' });
     if (m.status === 'done' && m.validated && !isAdmin(req, t)) return send(res, 409, { error: 'Score déjà validé par l’organisation' });

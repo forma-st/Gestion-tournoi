@@ -1,3 +1,4 @@
+import { qrSvg } from '../ui.js';
 import { html, raw, sides, scoreText, matchTime, phaseLabel, teamName, sportOf, contrastInk, esc } from '../ui.js';
 import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS } from '../engine.js';
 
@@ -32,7 +33,7 @@ export function matchRow(ctx, m, opts = {}) {
 }
 
 /** Terrain vu du dessus avec le match en cours (ou le prochain). */
-export function courtTile(ctx, court, { big = false, link = '' } = {}) {
+export function courtTile(ctx, court, { big = false, link = '', qr = '' } = {}) {
   const { t, resolved } = ctx;
   const ms = t.matches.filter((m) => m.courtId === court.id && m.status !== 'bye').sort((a, b) => a.slot - b.slot);
   const live = ms.find((m) => m.status === 'live');
@@ -40,7 +41,7 @@ export function courtTile(ctx, court, { big = false, link = '' } = {}) {
   const m = live || next;
   const sp = sportOf(court);
   const light = contrastInk(court.color);
-  let inner;
+  let inner, meta = '';
   if (!m) inner = html`<div class="idle">Terrain libre</div>`;
   else {
     const s = sides(t, m, resolved);
@@ -52,11 +53,13 @@ export function courtTile(ctx, court, { big = false, link = '' } = {}) {
       <div class="half"><div class="tn">${s.nameA}</div><div class="pts">${live ? cur[0] : '–'}</div>${live && sc.mode === 'points' && sc.setsToWin > 1 ? html`<div class="sets">Sets ${r.setsA}</div>` : ''}</div>
       <div class="half"><div class="tn">${s.nameB}</div><div class="pts">${live ? cur[1] : '–'}</div>${live && sc.mode === 'points' && sc.setsToWin > 1 ? html`<div class="sets">Sets ${r.setsB}</div>` : ''}</div>
     </div>
-    <div class="foot">${live ? (sc.mode === 'time' ? html`<span data-timer="${JSON.stringify(m.timer || null)}" data-dur="${sc.durationMin}">⏱</span>` : html`<span>Set ${sets.length || 1}</span>`) : html`<span>À suivre · ${matchTime(t, m)}</span>`}${s.referee ? html`<span>Arbitre : ${teamName(t, s.referee)}</span>` : ''}</div>`;
+`;
+    meta = html`${live ? (sc.mode === 'time' ? html`<span data-timer="${JSON.stringify(m.timer || null)}" data-dur="${sc.durationMin}">⏱</span>` : html`<span>Set ${sets.length || 1}</span>`) : html`<span>À suivre · ${matchTime(t, m)}</span>`}${s.referee ? html`<span>Arb. ${teamName(t, s.referee)}</span>` : ''}`;
   }
   const tag = link ? 'a' : 'div';
   return html`${raw(`<${tag} ${link ? `href="${esc(link)}" style="text-decoration:none;--c:${esc(court.color)}"` : `style="--c:${esc(court.color)}"`} class="court ${light}">`)}
-    <div class="ch"><span>${court.name} · ${sp.icon} ${sp.label}</span><span class="spacer"></span>${live ? html`<span class="pill live" style="background:rgba(0,0,0,.25)">Direct</span>` : ''}</div>
+    ${qr ? html`<div class="cqr">${qrSvg(qr)}<small>Score en direct</small></div>` : ''}
+    <div class="ch"><span>${court.name} · ${sp.icon} ${sp.label}</span><span class="spacer"></span><span class="cmeta">${meta}</span>${live ? html`<span class="pill live" style="background:rgba(0,0,0,.25)">Direct</span>` : ''}</div>
     ${inner}
   ${raw(`</${tag}>`)}`;
 }

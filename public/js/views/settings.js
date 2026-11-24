@@ -161,6 +161,9 @@ export function sectionRules(t) {
       <label class="check" style="align-self:end"><input type="checkbox" data-path="scoreValidation" ${t.scoreValidation ? raw('checked') : ''}> Valider chaque score avant publication</label>
     </div>
     <div class="card flat stack">
+      <label class="check"><input type="checkbox" data-path="openScoring" ${t.openScoring ? raw('checked') : ''}> <span><b>Saisie libre des scores</b> : chaque joueur peut tenir le score de son match depuis son téléphone, sans code. <span class="hint">Idéal entre amis. Décochez pour un tournoi officiel : il faudra alors le QR du terrain, le PIN de l’équipe ou le code bénévole.</span></span></label>
+    </div>
+    <div class="card flat stack">
       <b>Pauses</b>
       ${(t.breaks || []).map((b, i) => html`<div class="row">
         <span>Après la rotation</span><input style="width:80px" type="number" min="1" data-type="num" data-path="breaks.${i}.afterSlot" value="${b.afterSlot + 1}" data-offset="-1">

@@ -786,6 +786,7 @@ export function newTournament(over = {}) {
     matches: [],
     pools: {},
     scoreValidation: false,
+    openScoring: true, // tournoi convivial : les joueurs saisissent les scores sans code
     referees: 'teams',
     volunteerPin: pin4(),
     announcements: [],
