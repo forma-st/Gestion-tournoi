@@ -26,7 +26,7 @@ export async function view(ctx) {
         ${ch ? html`<div style="min-width:26vw"><div style="font-size:1.8vh;opacity:.75">${t.charity.label}${ch.goal ? ` · objectif ${euros(ch.goal)}` : ''}${t.charity.pointPledge ? ` · ${ch.points} points = ${euros(ch.pledge)}` : ''}</div><div class="num" style="font-size:4.4vh;color:var(--ball)">${euros(ch.total)}</div>${ch.goal ? html`<div class="places"><i style="width:${ch.pct}%"></i></div>` : ''}</div>` : ''}
         <span class="clock" data-clock></span></header>
       <div class="tvmain" style="${only ? 'grid-template-columns:1fr' : ''}">
-        <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true }))}</section>
+        <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true, qr: c.token || t.openScoring ? `${store.baseUrl()}#/court/${t.id}/${c.id}${c.token ? `?k=${c.token}` : ''}` : '' }))}</section>
         ${only ? '' : html`<section class="tvside fade-in" aria-live="polite"><h2>${p.title}</h2><div style="flex:1;min-height:0;overflow:hidden">${p.body}</div>
           <div class="row" style="gap:1vw;margin-top:1vh;align-items:center"><div style="width:11vh;background:#fff;padding:.5vh;border-radius:.8vh">${qrSvg(portal)}</div><div style="font-size:1.9vh;opacity:.85">Scannez pour suivre<br>vos matchs sur votre téléphone</div></div></section>`}
       </div>

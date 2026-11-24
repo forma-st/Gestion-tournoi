@@ -7,6 +7,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { charityTotals } from './public/js/money.js';
 
@@ -15,7 +16,14 @@ const PUBLIC = path.join(ROOT, 'public');
 const DATA = process.env.DATA_DIR || path.join(ROOT, 'data');
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
-const ADMIN_KEY = process.env.ADMIN_KEY || ''; // optionnel : protège la création de tournois
+// Mode en ligne : adresse publique fixe (hébergement) ou tunnel Cloudflare depuis l'ordinateur du gymnase
+const TUNNEL = process.argv.includes('--tunnel') || process.env.TUNNEL === '1';
+let publicUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const ONLINE = () => TUNNEL || !!publicUrl;
+// Clé organisateur : protège la création de tournois quand l'application est accessible depuis Internet
+const ADMIN_KEY = process.env.ADMIN_KEY || (TUNNEL || process.env.PUBLIC_URL ? crypto.randomBytes(3).toString('hex').toUpperCase() : '');
+// Derrière un tunnel ou un hébergeur, l'adresse réelle du visiteur est dans les en-têtes
+const TRUST_PROXY = TUNNEL || process.env.TRUST_PROXY === '1';
 
 fs.mkdirSync(DATA, { recursive: true });
 
@@ -115,9 +123,20 @@ async function readBody(req, limit = 2_000_000) {
 
 const lanIps = () => Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
 
+const isLoopback = (a) => /^(::1|127\.|::ffff:127\.)/.test(a || '');
+function clientIp(req) {
+  if (TRUST_PROXY || isLoopback(req.socket.remoteAddress)) {
+    const h = req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (h) return h;
+  }
+  return req.socket.remoteAddress;
+}
+/** Requête faite depuis l'ordinateur qui fait tourner le serveur (et pas relayée par le tunnel). */
+const isLocalRequest = (req) => isLoopback(req.socket.remoteAddress) && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'];
+
 const rateBucket = new Map();
 function rateLimited(req, key, max = 30, windowMs = 60000) {
-  const k = `${key}|${req.socket.remoteAddress}`;
+  const k = `${key}|${clientIp(req)}`;
   const now = Date.now();
   const b = rateBucket.get(k) || { n: 0, t: now };
   if (now - b.t > windowMs) { b.n = 0; b.t = now; }
@@ -132,7 +151,7 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // sans "api"
   const method = req.method;
 
-  if (parts[0] === 'ping') return send(res, 200, { ok: true, server: true, lan: lanIps(), port: PORT, time: Date.now() });
+  if (parts[0] === 'ping') return send(res, 200, { ok: true, server: true, lan: lanIps(), port: PORT, time: Date.now(), publicUrl, online: ONLINE(), keyRequired: !!ADMIN_KEY && !isLocalRequest(req) });
 
   if (parts[0] === 'events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
@@ -145,7 +164,10 @@ async function api(req, res, url) {
   if (parts[0] === 'tournaments' && method === 'GET') return send(res, 200, await listAll());
 
   if (parts[0] === 'tournaments' && method === 'POST') {
-    if (ADMIN_KEY && req.headers['x-admin-key'] !== ADMIN_KEY) return send(res, 401, { error: 'Clé organisateur requise' });
+    if (ADMIN_KEY && !isLocalRequest(req) && !safeEq(String(req.headers['x-admin-key'] || '').toUpperCase(), ADMIN_KEY.toUpperCase())) {
+      if (rateLimited(req, 'key', 10)) return send(res, 429, { error: 'Trop d’essais, patientez une minute' });
+      return send(res, 401, { error: 'Clé organisateur requise pour créer un tournoi', code: 'admin_key' });
+    }
     const t = await readBody(req);
     if (!t.id || !/^[a-z0-9_-]{3,40}$/i.test(t.id)) return send(res, 400, { error: 'Identifiant invalide' });
     if (await load(t.id)) return send(res, 409, { error: 'Ce tournoi existe déjà' });
@@ -253,6 +275,7 @@ async function api(req, res, url) {
     const ok = isAdmin(req, t)
       || (b.token && (safeEq(String(b.token), String(m.token)) || (court?.token && safeEq(String(b.token), String(court.token)))))
       || (pin && t.volunteerPin && safeEq(pin, String(t.volunteerPin)))
+      || t.openScoring === true
       || (team && [m.referee, b.teamA, b.teamB, m.teamA, m.teamB].includes(team.id));
     if (!ok) return send(res, 403, { error: 'Lien de feuille de match invalide' });
     if (m.status === 'done' && m.validated && !isAdmin(req, t)) return send(res, 409, { error: 'Score déjà validé par l’organisation' });
@@ -309,6 +332,7 @@ async function api(req, res, url) {
 }
 
 // ------------------------------------------------------------------ fichiers statiques
+const origin = (req) => publicUrl || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function serveStatic(req, res, url) {
@@ -324,8 +348,8 @@ async function serveStatic(req, res, url) {
         const desc = `${date}${t.venue ? ' · ' + t.venue : ''} — ${t.tagline || t.description || 'Inscrivez votre équipe !'}`;
         const og = `<title>${esc(t.name)}</title>
 <meta property="og:title" content="${esc(t.name)}"><meta property="og:description" content="${esc(desc)}">
-<meta property="og:type" content="website"><meta property="og:url" content="${esc(`${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}${p}`)}">
-<meta property="og:image" content="${esc(`${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}/icons/og.png`)}">
+<meta property="og:type" content="website"><meta property="og:url" content="${esc(`${origin(req)}${p}`)}">
+<meta property="og:image" content="${esc(`${origin(req)}/icons/og.png`)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="description" content="${esc(desc)}">`;
         html = html.replace(/<title>.*?<\/title>/, og);
       }
@@ -357,8 +381,52 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   const ips = lanIps();
-  console.log('\n  🏐  Tournoi — serveur prêt\n');
+  console.log('\n  🏐  Rotation : serveur prêt\n');
   console.log(`  Sur cet ordinateur : http://localhost:${PORT}`);
-  for (const ip of ips) console.log(`  Sur le réseau local : http://${ip}:${PORT}   ← à utiliser pour les QR codes`);
+  for (const ip of ips) console.log(`  Réseau local (Wi-Fi) : http://${ip}:${PORT}`);
+  if (publicUrl) console.log(`\n  🌍 Adresse publique : ${publicUrl}`);
+  if (TUNNEL) startTunnel();
+  if (ADMIN_KEY) console.log(`\n  🔑 Clé organisateur (pour créer un tournoi depuis un autre appareil) : ${ADMIN_KEY}`);
   console.log(`\n  Données : ${DATA}\n`);
 });
+
+/**
+ * Tunnel Cloudflare : rend le serveur accessible depuis Internet (4G des joueurs) sans configurer de box.
+ * - sans compte : adresse https://xxxx.trycloudflare.com, nouvelle à chaque lancement ;
+ * - avec TUNNEL_TOKEN (tunnel nommé) et PUBLIC_URL : adresse fixe, QR codes imprimables à l'avance.
+ */
+function startTunnel() {
+  const bin = process.env.CLOUDFLARED || 'cloudflared';
+  const args = process.env.TUNNEL_TOKEN
+    ? ['tunnel', '--no-autoupdate', 'run', '--token', process.env.TUNNEL_TOKEN]
+    : ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`];
+  console.log('  ⏳ Ouverture du tunnel Cloudflare…');
+  let child;
+  try { child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tunnelMissing(); }
+  child.on('error', tunnelMissing);
+  const onData = (buf) => {
+    const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
+      publicUrl = m[0];
+      console.log(`\n  🌍 En ligne : ${publicUrl}\n     Ouvrez cette adresse sur l'ordinateur : les QR codes l'utiliseront.\n     (Elle change à chaque lancement : imprimez les affiches QR une fois le serveur démarré.)\n`);
+      broadcast({ type: 'net' });
+    }
+    if (/Registered tunnel connection/i.test(String(buf)) && process.env.TUNNEL_TOKEN) console.log(`  🌍 Tunnel connecté : ${publicUrl || '(définissez PUBLIC_URL)'}`);
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('exit', (code) => { if (code) console.log(`  ⚠️  Le tunnel s'est arrêté (code ${code}). Vérifiez la connexion Internet puis relancez.`); });
+  const stop = () => { try { child.kill(); } catch { /* */ } process.exit(0); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+}
+
+function tunnelMissing() {
+  console.log(`
+  ⚠️  cloudflared n'est pas installé : le serveur marche, mais seulement sur cet ordinateur et le réseau local.
+     Installez-le une fois (gratuit) puis relancez « npm run en-ligne » :
+       • Windows : winget install --id Cloudflare.cloudflared
+       • Mac     : brew install cloudflared
+       • Linux   : https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+`);
+}

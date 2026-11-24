@@ -1,5 +1,5 @@
 import { store } from '../store.js';
-import { html, raw, toStr, toast, fmtDate, euros, plural, $, $$ } from '../ui.js';
+import { html, raw, toStr, toast, modal, fmtDate, euros, plural, $, $$ } from '../ui.js';
 import { newTournament, buildSchedule, uid, SPORTS } from '../engine.js';
 import { buildDemo, simulate, DEMOS } from '../demo.js';
 import { shell } from './shell.js';
@@ -74,7 +74,7 @@ export async function homeView() {
           if (b.dataset.kind === 'interne') t = { ...buildDemo('interne'), id: `interne-${uid(4)}` };
           else if (+b.dataset.sim >= 0) { simulate(t, +b.dataset.sim); t.status = 'live'; }
           else t.status = 'ready';
-          await store.create(t);
+          await createTournament(t);
           toast('Tournoi d’exemple créé', 'ok');
           location.hash = `#/admin/${t.id}${b.dataset.kind === 'interne' ? '/joueurs' : ''}`;
         } catch (err) { toast(err.message, 'err'); b.disabled = false; }
@@ -151,7 +151,7 @@ export async function wizardView(ctx) {
           try {
             t.id = slug(t.name) + '-' + uid(4);
             t.status = 'ready';
-            await store.create(t);
+            await createTournament(t);
             sessionStorage.removeItem('rot:draft');
             toast('Tournoi créé', 'ok');
             location.hash = `#/admin/${t.id}/equipes`;
@@ -160,6 +160,18 @@ export async function wizardView(ctx) {
       });
     },
   };
+}
+
+/** Crée le tournoi ; si le serveur est en ligne, demande la clé organisateur affichée à son démarrage. */
+export async function createTournament(t) {
+  try { return await store.create(t); }
+  catch (e) {
+    if (e.status !== 401) throw e;
+    const r = await modal({ title: 'Clé organisateur', ok: 'Valider', body: html`<p style="margin:0">Le serveur est accessible depuis Internet : seule l’organisation peut créer un tournoi. La clé s’affiche dans la fenêtre du serveur, au démarrage.</p><label class="f">Clé organisateur<input type="text" name="key" required autocomplete="off" autocapitalize="characters" maxlength="40"></label>` });
+    if (!r) throw new Error('Création annulée');
+    store.setAdminKey(r.key);
+    return store.create(t);
+  }
 }
 
 const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'tournoi';

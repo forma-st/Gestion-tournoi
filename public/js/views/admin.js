@@ -106,6 +106,7 @@ const PANELS = {
     const phases = phaseProgress(t);
     return html`
       <div class="next-step"><div style="flex:1;min-width:220px"><h3>${next.title}</h3><p>${next.text}</p></div>${next.action || ''}</div>
+      ${store.reach() !== 'internet' && t.status !== 'done' ? html`<div class="card row between" style="margin-top:1rem;border-left:6px solid var(--ball)"><span><b>Pas de Wi-Fi au gymnase ?</b> Passez en ligne pour que les joueurs utilisent leur 4G.</span><a class="btn ghost sm" href="#/admin/${t.id}/terrains">Voir comment</a></div>` : ''}
       <div class="kpis section" style="margin-top:1rem">
         <div class="kpi"><div class="v">${conf.length}<span class="muted" style="font-size:1.2rem">/${t.registration.maxTeams}</span></div><div class="l">équipes confirmées</div></div>
         <div class="kpi"><div class="v">${arrived}</div><div class="l">équipes arrivées</div></div>
@@ -290,9 +291,7 @@ const PANELS = {
           <div class="row" style="align-items:flex-start"><div class="qr" style="width:130px">${qrSvg(`${base}#/t/${t.id}`)}</div><div class="stack" style="flex:1"><p class="small" style="margin:0">Le portail : matchs, classements, infos. Les équipes s’y connectent avec leur PIN.</p><code class="small" style="word-break:break-all">${base}#/t/${t.id}</code></div></div>
           <p class="small" style="margin:0">Code bénévole (peut saisir tous les scores) : <b class="num" style="font-size:1.2rem">${t.volunteerPin}</b> <button class="linkbtn small" data-act="new-vpin">Changer</button></p>
         </div>
-        <form class="card stack" data-form="baseurl"><h3>Adresse utilisée dans les QR codes</h3>
-          <p class="hint" style="margin:0">${store.mode === 'server' ? `Détectée : ${base}. Si les téléphones ne l’ouvrent pas, mettez ici l’adresse affichée au lancement du serveur (réseau local) ou votre adresse en ligne.` : 'Mode autonome : les QR codes pointent vers ce navigateur. Pour que les téléphones envoient les scores, lancez le serveur Rotation sur un ordinateur du gymnase.'}</p>
-          <input type="url" name="url" value="${store.LS.get('rot:baseUrl', '')}" placeholder="http://192.168.1.20:8080/"><div><button class="btn ghost sm">Enregistrer</button></div></form>
+${connexionCard(t)}
       </div>
     </div>`;
   },
@@ -383,6 +382,24 @@ const PANELS = {
 };
 
 // ------------------------------------------------------------------ fragments
+/** Comment les téléphones des joueurs rejoignent l'application (4G, Wi-Fi local, ou ce navigateur seul). */
+function connexionCard(t) {
+  const reach = store.reach();
+  const base = store.baseUrl();
+  const custom = store.LS.get('rot:baseUrl', '');
+  return html`<form class="card stack" data-form="baseurl"><h3 style="margin:0">Connexion des téléphones</h3>
+    ${reach === 'internet' ? html`<p class="pill ok" style="justify-self:start">En ligne : les joueurs utilisent leur 4G</p>
+      <p style="margin:0">Adresse publique : <b style="word-break:break-all">${base}</b></p>
+      <p class="hint" style="margin:0">Les QR codes utilisent cette adresse. Avec un tunnel sans compte, elle change à chaque lancement du serveur : imprimez les affiches QR une fois le serveur démarré.</p>`
+    : reach === 'lan' ? html`<p class="pill warn" style="justify-self:start">Réseau local uniquement</p>
+      <p style="margin:0">Les téléphones doivent être sur le même Wi-Fi que cet ordinateur. <b>Pas de Wi-Fi au gymnase ?</b> Connectez l’ordinateur au partage de connexion de votre téléphone, puis relancez le serveur avec <code>npm run en-ligne</code> : il devient accessible en 4G pour tout le monde.</p>`
+    : html`<p class="pill warn" style="justify-self:start">Mode autonome</p>
+      <p style="margin:0">Les données restent dans ce navigateur. Pour que les joueurs saisissent les scores sur leur téléphone, lancez le serveur Rotation (<code>npm run en-ligne</code>, voir le guide).</p>`}
+    <details ${custom ? raw('open') : ''}><summary class="small">Forcer une autre adresse pour les QR codes</summary>
+      <div class="stack" style="margin-top:.5rem"><input type="url" name="url" value="${custom}" placeholder="https://mon-tournoi.exemple.fr/"><div><button class="btn ghost sm">Enregistrer</button></div></div></details>
+  </form>`;
+}
+
 function nextStep(ctx) {
   const { t } = ctx;
   const conf = t.teams.filter((x) => x.status === 'confirmed').length;

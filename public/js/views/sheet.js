@@ -39,7 +39,7 @@ function sheetFor(ctx, m, { token, court }) {
   const s = sides(t, m, resolved);
   const sc = scoringFor(t, m);
   const role = store.role(t.id);
-  const allowed = !!token || store.isAdmin(t) || role?.role === 'volunteer' || (role?.role === 'team' && [s.a, s.b, s.referee].includes(role.teamId));
+  const allowed = !!token || t.openScoring === true || store.isAdmin(t) || role?.role === 'volunteer' || (role?.role === 'team' && [s.a, s.b, s.referee].includes(role.teamId));
   if (!local || local.id !== m.id) local = { id: m.id, sets: structuredClone(m.sets?.length ? m.sets : [[0, 0]]), swapped: false, dirty: false, timer: m.timer || null };
   if (!local.dirty) { local.sets = structuredClone(m.sets?.length ? m.sets : [[0, 0]]); local.timer = m.timer || null; }
   const sets = local.sets;
@@ -59,8 +59,8 @@ function sheetFor(ctx, m, { token, court }) {
 
   const side = (k, cls) => html`<div class="side ${cls}">
     <div class="nm">${name(k)}</div>
-    <button class="plus" data-act="plus" data-k="${k}" ${!allowed || m.status === 'done' || matchOver || finishedSet ? raw('disabled style="opacity:.55"') : ''} aria-label="Point pour ${name(k)}">${sc.mode === 'points' && sc.setsToWin > 1 ? html`<small>Sets ${setsWon(k)}</small>` : ''}${pts(k)}</button>
-    <button class="minus" data-act="minus" data-k="${k}" ${!allowed || m.status === 'done' ? raw('disabled') : ''} aria-label="Retirer un point à ${name(k)}">− 1</button>
+    <button class="plus" data-act="plus" data-k="${k}" ${!allowed || m.status === 'done' || matchOver || finishedSet ? raw('disabled style="opacity:.55"') : ''} aria-label="Point pour ${name(k)}, score ${pts(k)}">${sc.mode === 'points' && sc.setsToWin > 1 ? html`<small>Sets ${setsWon(k)}</small>` : ''}${pts(k)}<span class="plus1">+1</span></button>
+    <button class="minus" data-act="minus" data-k="${k}" ${!allowed || m.status === 'done' || !pts(k) ? raw('disabled') : ''} aria-label="Retirer un point à ${name(k)}">−1</button>
   </div>`;
 
   let banner = '';
@@ -81,10 +81,11 @@ function sheetFor(ctx, m, { token, court }) {
       ${sc.mode === 'points' && sets.length > 1 ? html`<div class="setstrip">${sets.map((x, i) => html`<span class="${i === cur ? 'cur' : ''}">${x[0]}-${x[1]}</span>`)}</div>` : ''}
       <div class="scorepad">${side(L, L === 'A' ? 'a' : 'b')}${side(R, R === 'A' ? 'a' : 'b')}</div>
       <div style="margin-top:12px">${banner}</div>
+      ${allowed && m.status === 'scheduled' ? html`<p class="hint" style="text-align:center;margin:.6rem 0 0">Touchez le score d’une équipe à chaque point marqué : le match démarre au premier point${sc.mode === 'time' ? ' (lancez aussi le chrono)' : ''}.</p>` : ''}
       ${allowed ? '' : html`<div class="card" style="margin-top:1rem;text-align:center"><p><b>Lecture seule.</b> Scannez le QR code du terrain ou connectez-vous avec le code de votre équipe pour saisir le score.</p><a class="btn" href="#/t/${t.id}">Se connecter au portail</a></div>`}
       <div class="row" style="justify-content:center;margin-top:1rem"><button class="linkbtn small" data-act="swap">Inverser les côtés</button><a class="small" href="#/t/${t.id}">Matchs et classements</a></div>
       ${allowed && m.status !== 'done' ? html`<div class="stickyact">
-        ${m.status === 'scheduled' ? html`<button class="btn ball" data-act="start">Commencer le match</button>` : html`<button class="btn" data-act="finish" ${sc.mode === 'points' && !matchOver ? raw('data-early="1"') : ''}>Valider le score final</button>`}
+        <button class="btn ${matchOver ? 'ball' : ''}" data-act="finish" ${sc.mode === 'points' && !matchOver ? raw('data-early="1"') : ''} ${m.status === 'scheduled' && !(pa + pb) ? raw('disabled') : ''}>Terminer le match</button>
       </div>` : ''}
     </main>`,
     keep: () => local?.busy,

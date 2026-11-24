@@ -83,7 +83,15 @@ Alternative simple : SumUp ou un TPE Android permettent d’ouvrir l’app de pa
 Ce que Rotation apporte en plus : hors ligne réel, multisport avec rotation équilibrée, matchs au temps et aux points sur le même tournoi, buvette avec matières premières, cagnotte solidaire en direct, accueil avec gestion des retards.
 Les solutions de paiement les plus adaptées à une association : **HelloAsso** (0 % pour l’association, contribution volontaire du payeur), Stripe Payment Links (1,5 % + 0,25 €), SumUp sur place (1,75 %).
 
-## 6. Tournois internes du club
+## 6. Connexion au gymnase (pas de Wi-Fi)
+
+Les joueurs n’ont pas à rejoindre un réseau : chacun ouvre le QR code avec la 4G de son téléphone.
+- L’ordinateur de l’organisateur se connecte au partage de connexion d’un téléphone ; `npm run en-ligne` ouvre un tunnel Cloudflare gratuit et donne une adresse `https://…`. Les QR codes, le portail et le grand écran l’utilisent tout seuls.
+- L’adresse gratuite change à chaque lancement : on imprime les affiches QR une fois le serveur démarré, ou on prend une adresse fixe (tunnel nommé ou hébergement permanent, voir le README).
+- Sécurité : seule l’organisation peut créer un tournoi (clé affichée au démarrage), chaque tournoi reste protégé par son code organisateur, et les saisies de score par le jeton du QR ou le PIN de l’équipe.
+- Consommation : quelques dizaines de Ko par téléphone pour toute la soirée.
+
+## 7. Tournois internes du club
 
 Pour les tournois réguliers de l’année :
 - **Inscription individuelle** en ligne (lien ou QR) ou sur place depuis l’onglet *Joueurs*, avec niveau 1 (débutant) à 4 (compétition) et genre (facultatif).
@@ -91,7 +99,7 @@ Pour les tournois réguliers de l’année :
 - **Tirage équilibré** : serpentin par niveau (femmes et hommes répartis séparément pour la mixité), puis échanges jusqu’à ce que les totaux de niveau soient les plus proches possible. On peut refaire le tirage autant de fois qu’on veut.
 - **Formules conseillées** selon l’heure de début, l’heure de fin et la durée d’une rotation : l’application essaie toutes les formules et classe celles qui tiennent dans l’horaire, les plus riches en matchs d’abord.
 
-## 7. Prochaines étapes possibles
+## 8. Prochaines étapes possibles
 
 - Système suisse (rondes appariées par niveau), utile au-delà de 24 équipes.
 - Mêlée (équipes recomposées à chaque match) pour les tournois individuels.
