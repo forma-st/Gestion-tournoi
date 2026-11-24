@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
-import { slotTime, finalPodium } from '../engine.js';
+import { slotTime, finalPodium, currentSlot, scoringFor } from '../engine.js';
 import { courtTile, startTimers, podiumView } from './components.js';
 import { charityOf } from './bar.js';
 
@@ -24,7 +24,7 @@ export async function view(ctx) {
     html: html`<div class="tvwrap">
       <header class="tvhead"><span style="width:6vh;display:block">${logo}</span><h1>${t.name}</h1>
         ${ch ? html`<div style="min-width:26vw"><div style="font-size:1.8vh;opacity:.75">${t.charity.label}${ch.goal ? ` · objectif ${euros(ch.goal)}` : ''}${t.charity.pointPledge ? ` · ${ch.points} points = ${euros(ch.pledge)}` : ''}</div><div class="num" style="font-size:4.4vh;color:var(--ball)">${euros(ch.total)}</div>${ch.goal ? html`<div class="places"><i style="width:${ch.pct}%"></i></div>` : ''}</div>` : ''}
-        <span class="clock" data-clock></span></header>
+        ${rotClock(t)}<span class="clock" data-clock></span></header>
       <div class="tvmain" style="${only ? 'grid-template-columns:1fr' : ''}">
         <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true, qr: c.token || t.openScoring ? `${store.baseUrl()}#/court/${t.id}/${c.id}${c.token ? `?k=${c.token}` : ''}` : '' }))}</section>
         ${only ? '' : html`<section class="tvside fade-in" aria-live="polite"><h2>${p.title}</h2><div style="flex:1;min-height:0;overflow:hidden">${p.body}</div>
@@ -52,6 +52,14 @@ export async function view(ctx) {
 
 // Quitter l'écran TV arrête la rotation des panneaux
 addEventListener('hashchange', () => { if (!location.hash.includes('/live/')) clearInterval(rotTimer); });
+
+function rotClock(t) {
+  const slot = currentSlot(t);
+  if (slot == null) return '';
+  const m = t.matches.find((x) => x.slot === slot && x.status === 'live' && x.timer);
+  if (!m) return html`<div style="text-align:right;font-size:2vh;opacity:.8">Rotation ${slot + 1}<br>${slotTime(t, slot)}</div>`;
+  return html`<div style="text-align:right"><div style="font-size:1.8vh;opacity:.75">Rotation ${slot + 1}</div><div class="num" style="font-size:6vh;line-height:1;color:var(--ball)" data-timer="${JSON.stringify(m.timer)}" data-dur="${scoringFor(t, m).durationMin}">⏱</div></div>`;
+}
 
 function buildPanels(ctx) {
   const { t, resolved, standings } = ctx;

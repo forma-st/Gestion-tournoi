@@ -1,3 +1,5 @@
+import { clock } from './time.js';
+import { issueCard, cardSale, findCard, blankCards, cancelSale } from './money.js';
 // Couche de données : serveur (temps réel, multi-appareils) ou local (navigateur seul, hors-ligne).
 // La même interface dans les deux cas. En mode serveur, les saisies de score faites hors réseau
 // sont mises en file d'attente et renvoyées automatiquement au retour de la connexion.
@@ -26,6 +28,7 @@ export const store = {
     try {
       const r = await fetch('api/ping', { cache: 'no-store' });
       const j = r.ok ? await r.json() : null;
+      if (j?.time) clock.offset = j.time - Date.now();
       if (j?.server) { this.mode = 'server'; this.lan = j.lan || []; this.publicUrl = j.publicUrl || ''; this.online = !!j.online; this.keyRequired = !!j.keyRequired; }
     } catch { /* pas de serveur : mode local */ }
   },
@@ -185,8 +188,13 @@ export const store = {
   /** sale : {items:[{pid, qty}], method, by} ; pin : code buvette/bénévole (ou admin). */
   async sale(id, sale, pin) {
     const payload = { ...sale, sid: sale.sid || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: sale.at || new Date().toISOString(), pin };
+    if (sale.method === 'points') {
+      if (this.mode === 'local') { let r; await this.mutate(id, (t) => { r = cardSale(t, { code: payload.card, items: payload.items, sid: payload.sid, at: payload.at }); }); return { ok: true, pts: r.pts, balance: r.card.balance, name: r.card.name, code: r.card.code }; }
+      try { return await this.api(`t/${id}/sale`, { method: 'POST', body: JSON.stringify(payload) }, id); }
+      catch (e) { if (!e.status) throw new Error('Pas de réseau : le paiement par carte a besoin de la connexion. Payez en espèces ou réessayez.'); throw e; }
+    }
     if (this.mode === 'local') {
-      if (payload.cancel) return this.mutate(id, (t) => { const x = (t.sales || []).find((y) => y.id === payload.cancel); if (x) x.cancelled = true; });
+      if (payload.cancel) return this.mutate(id, (t) => { cancelSale(t, payload.cancel); });
       return this.mutate(id, (t) => {
         t.sales ??= [];
         const items = payload.items.map((it) => { const p = t.buvette.find((x) => x.id === it.pid); return p && { pid: p.id, name: p.name, qty: it.qty, price: +p.price || 0 }; }).filter(Boolean);
@@ -195,6 +203,27 @@ export const store = {
     }
     try { return await this.api(`t/${id}/sale`, { method: 'POST', body: JSON.stringify(payload) }, id); }
     catch (e) { if (e.status) throw e; this.queue(id, 'sale', payload); return { queued: true }; }
+  },
+
+  /** Cartes à points : op = 'issue' | 'lookup' | 'blank'. */
+  async card(id, op, data, pin) {
+    if (this.mode === 'local') {
+      let out;
+      if (op === 'lookup') { const t = await this.get(id); const c = findCard(t, data.code); if (!c) throw new Error('Carte inconnue : vérifiez le code'); return { ...c }; }
+      await this.mutate(id, (t) => {
+        if (op === 'issue') out = { ...issueCard(t, data) };
+        if (op === 'blank') { blankCards(t, data.n || 30); out = { ok: true }; }
+      });
+      return out;
+    }
+    try { return await this.api(`t/${id}/card`, { method: 'POST', body: JSON.stringify({ ...data, op, pin }) }, id); }
+    catch (e) { if (!e.status) throw new Error('Pas de réseau : réessayez dans un instant.'); throw e; }
+  },
+
+  /** Carte virtuelle du joueur (lien secret). */
+  async myCard(id, code, key) {
+    if (this.mode === 'local') { const t = await this.get(id); const c = findCard(t, code); if (!c || c.key !== key) throw new Error('Carte introuvable'); return { code: c.code, name: c.name, balance: c.balance, ops: (c.ops || []).slice(-15).reverse() }; }
+    return this.api(`t/${id}/card/${encodeURIComponent(code)}?k=${encodeURIComponent(key)}`);
   },
 
   // -------------------------------------------------------------- cagnotte

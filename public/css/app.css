@@ -263,8 +263,9 @@ table.t tr.q td:first-child { box-shadow: inset 4px 0 0 var(--win); }
 .side .plus .plus1 { position: absolute; bottom: 10px; left: 0; right: 0; font-size: 1.1rem; font-weight: 700; opacity: .8; }
 .side .minus { border: 0; border-radius: var(--r-sm); background: var(--loss-bg); color: #A12F2F; min-height: 56px; font-weight: 800; cursor: pointer; font-size: 1.4rem; font-family: var(--display); touch-action: manipulation; }
 .side .minus[disabled] { opacity: .4; }
-.court .cmeta { display: flex; gap: .7rem; font-weight: 600; opacity: .9; }
-@media (max-width: 520px) { .court .ch { flex-wrap: wrap; } }
+.court .ch { flex-wrap: wrap; row-gap: .1rem; }
+.court .cmeta { display: flex; flex-wrap: wrap; gap: 0 .7rem; font-weight: 600; opacity: .9; }
+.courts-grid .court .cmeta { font-size: .82rem; }
 .court .cqr { position: absolute; right: 14px; bottom: 14px; width: 9vh; min-width: 64px; background: #fff; padding: 4px; border-radius: 6px; z-index: 2; }
 .court .cqr small { display: block; text-align: center; color: #0F2A17; font-size: .6rem; font-weight: 700; line-height: 1.1; }
 .side.b .plus { background: var(--court); }
@@ -395,3 +396,11 @@ table.t td:has(> .pill) { white-space: nowrap; }
 .tvdon { display: grid; gap: .6vh; }
 .tvdon div { display: flex; justify-content: space-between; gap: 1vw; font-size: 2vh; padding: .5vh 0; border-bottom: 1px solid rgba(255, 255, 255, .08); }
 .tvdon b { color: var(--ball); }
+
+.numstep { display: inline-flex; align-items: center; gap: .4rem; background: #fff; border: 1.5px solid var(--line); border-radius: 99px; padding: 3px; }
+.numstep b { min-width: 2ch; text-align: center; font-size: 1.6rem; }
+.numstep .btn { min-height: 40px; width: 40px; font-size: 1.4rem; }
+.pos-pts { color: var(--court); font-weight: 800; }
+.cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85mm, 1fr)); gap: 6mm; }
+.paycard { border: 1.5px dashed #555; border-radius: 4mm; padding: 4mm 5mm; display: grid; grid-template-columns: 1fr 30mm; gap: 3mm; break-inside: avoid; min-height: 52mm; align-items: center; }
+.paycard .qr { width: 30mm; }

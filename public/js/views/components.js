@@ -1,4 +1,5 @@
 import { qrSvg } from '../ui.js';
+import { elapsedOf } from '../time.js';
 import { html, raw, sides, scoreText, matchTime, phaseLabel, teamName, sportOf, contrastInk, esc } from '../ui.js';
 import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS } from '../engine.js';
 
@@ -185,7 +186,7 @@ export function startTimers(root) {
     for (const el of root.querySelectorAll('[data-timer]')) {
       let tm = null; try { tm = JSON.parse(el.dataset.timer); } catch { /* */ }
       const dur = (+el.dataset.dur || 0) * 60000;
-      const elapsed = tm ? tm.elapsed + (tm.running ? Date.now() - tm.since : 0) : 0;
+      const elapsed = elapsedOf(tm);
       const left = Math.max(0, dur - elapsed);
       el.textContent = tm ? `⏱ ${fmtClock(left)}${tm.running ? '' : ' (pause)'}` : '⏱ Chrono non lancé';
     }

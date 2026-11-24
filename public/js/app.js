@@ -39,6 +39,7 @@ const VIEWS = {
   inscription: promo.registerView,
   print: print.view,
   caisse: bar.caisseView,
+  carte: bar.carteView,
 };
 
 export function go(hash) { if (location.hash !== hash) location.hash = hash; else render(); }

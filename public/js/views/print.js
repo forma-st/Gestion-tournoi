@@ -37,6 +37,11 @@ export async function view(ctx) {
         <tbody><tr><td style="text-align:left">${s.nameA}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr><tr><td style="text-align:left">${s.nameB}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr></tbody></table></div>
         <div style="text-align:center;font-size:.75rem"><div class="qr">${qrSvg(`${base}#/match/${t.id}/${m.id}?k=${m.token}`)}</div>Saisir en ligne</div></div>`;
     })}</div>`;
+  } else if (kind === 'cartes') {
+    const blank = (t.cards || []).filter((c) => !c.ops?.length);
+    body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${blank.length} cartes vierges à découper</h2>
+      <p class="noprint hint">Chaque carte a son code. À la buvette, on la charge (« Vendre / recharger une carte » → scanner ou taper le code), puis le joueur paie en points. En scannant le QR, il retrouve son solde sur son téléphone.</p>
+      <div class="cardgrid">${blank.map((c) => html`<div class="paycard"><div><b style="font-size:1.1rem">${t.name}</b><div class="small">Carte buvette</div><div class="num" style="font-size:2.4rem;line-height:1.1">${c.code}</div><div class="small" style="margin-top:2mm">Prénom : ………………………</div></div><div class="qr">${qrSvg(`${base}#/carte/${t.id}/${c.code}?k=${c.key}`)}</div></div>`)}</div></div>`;
   } else if (kind === 'planning') {
     const courts = t.courts.filter((c) => c.active !== false);
     const slots = [...new Set(t.matches.filter((m) => m.slot != null).map((m) => m.slot))].sort((a, b) => a - b);
