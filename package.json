@@ -6,8 +6,11 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "en-ligne": "node server.js --tunnel",
     "test": "node --test test/*.test.mjs"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "UNLICENSED"
 }

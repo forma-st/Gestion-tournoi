@@ -1,7 +1,7 @@
 # Rotation : tournois de volley et multisport
 
 Application web légère pour organiser un tournoi de A à Z : inscriptions, accueil, planning, feuilles de match sur téléphone par QR code, grand écran, buvette et cagnotte solidaire.
-Elle fonctionne **sans Internet** : un ordinateur portable au gymnase suffit.
+Les joueurs se connectent en **4G avec leur propre téléphone** (via un tunnel sécurisé depuis l’ordinateur de l’organisateur), ou sur le Wi-Fi local s’il y en a un. Les saisies continuent même quand le réseau coupe.
 
 - Aucune dépendance à installer : Node.js seul (≥ 18).
 - Environ 300 Ko de code, polices et générateur de QR code inclus.
@@ -9,25 +9,40 @@ Elle fonctionne **sans Internet** : un ordinateur portable au gymnase suffit.
 
 ## Démarrer
 
+Installez [Node.js](https://nodejs.org) (version 18 ou plus) une seule fois, téléchargez ce dépôt, puis dans son dossier :
+
 ```bash
-node server.js            # ou : npm start
+npm run en-ligne     # accessible en 4G depuis tous les téléphones (recommandé)
+npm start            # réseau local uniquement (Wi-Fi)
 ```
 
-Le terminal affiche deux adresses :
+## Le jour J, sans Wi-Fi au gymnase
 
-- `http://localhost:8080` pour l’ordinateur de l’organisateur ;
-- `http://192.168.x.x:8080` pour les téléphones et la TV, sur le même Wi-Fi. C’est cette adresse qui est mise dans les QR codes.
+Chacun utilise **la 4G de son propre téléphone** : personne n’a à se connecter à un réseau.
 
-Options : `PORT=3000`, `DATA_DIR=/chemin/donnees`, `ADMIN_KEY=secret` (protège la création de tournois si le serveur est en ligne).
+1. **Une fois pour toutes**, installez `cloudflared` (gratuit, sans compte) : `winget install --id Cloudflare.cloudflared` sous Windows, `brew install cloudflared` sur Mac.
+2. Au gymnase, activez le **partage de connexion** de votre téléphone et connectez-y l’ordinateur.
+3. Lancez `npm run en-ligne`. La fenêtre affiche :
+   - l’**adresse publique** `https://xxxx.trycloudflare.com` : ouvrez-la sur l’ordinateur ; les QR codes, le portail et le grand écran l’utilisent automatiquement ;
+   - la **clé organisateur**, demandée seulement pour créer un tournoi depuis un autre appareil.
+4. Imprimez les affiches QR des terrains **après** ce démarrage : l’adresse gratuite change à chaque lancement. Pour une adresse fixe, voir « Hébergement permanent ».
+5. Branchez la TV sur `…/#/live/<tournoi>` (double-clic : plein écran).
 
-### Au gymnase, sans Internet
+Si la 4G est faible dans le gymnase, les scores et les ventes de buvette restent enregistrés sur les téléphones et partent dès que le signal revient. Toutes les données sont stockées sur l’ordinateur (dossier `data/`) : faites une sauvegarde JSON depuis l’onglet *Bilan* en fin de soirée.
 
-1. Allumez un routeur Wi-Fi de voyage, ou faites un point d’accès avec un téléphone. L’accès Internet n’est pas nécessaire.
-2. Connectez l’ordinateur, lancez `node server.js`.
-3. Branchez la TV ou le vidéoprojecteur sur `…/#/live/<tournoi>` (double-clic : plein écran).
-4. Collez les affiches QR imprimées (onglet **Terrains & QR**) sur chaque terrain.
+Avec un vrai Wi-Fi sur place, `npm start` suffit : les téléphones connectés au même Wi-Fi utilisent l’adresse « Réseau local » affichée au démarrage.
 
-Si un téléphone perd le réseau, ses saisies de score et ses ventes de buvette sont gardées sur le téléphone, puis envoyées automatiquement au retour du réseau.
+### Hébergement permanent (inscriptions en ligne avant le jour J)
+
+Pour que la page de promotion et les inscriptions soient en ligne toute l’année, déployez le même serveur chez un hébergeur Node.js ou Docker (Render, Fly.io, Railway, un VPS…) avec le `Dockerfile` fourni :
+
+- montez un **disque persistant** sur `/data`, sinon les tournois sont perdus au redémarrage ;
+- définissez `PUBLIC_URL=https://votre-adresse` et `ADMIN_KEY=une-clé-secrète`.
+
+Les hébergements gratuits sans disque persistant ne conviennent pas.
+Autre solution pour garder `npm run en-ligne` sur l’ordinateur avec une adresse fixe : un tunnel Cloudflare nommé, avec `TUNNEL_TOKEN=…` et `PUBLIC_URL=https://tournoi.votre-domaine.fr` (il faut un nom de domaine géré par Cloudflare).
+
+Variables utiles : `PORT`, `DATA_DIR`, `PUBLIC_URL`, `ADMIN_KEY`, `TUNNEL_TOKEN`, `TRUST_PROXY=1` (derrière un proxy).
 
 ### Sans serveur (mode autonome)
 

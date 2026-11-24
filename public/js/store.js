@@ -18,12 +18,20 @@ export const store = {
   pending: LS.get('rot:outbox', []),
   bc: 'BroadcastChannel' in self ? new BroadcastChannel('rotation') : null,
 
-  async init() {
+  publicUrl: '',
+  online: false,
+  keyRequired: false,
+
+  async ping() {
     try {
       const r = await fetch('api/ping', { cache: 'no-store' });
       const j = r.ok ? await r.json() : null;
-      if (j?.server) { this.mode = 'server'; this.lan = j.lan || []; }
+      if (j?.server) { this.mode = 'server'; this.lan = j.lan || []; this.publicUrl = j.publicUrl || ''; this.online = !!j.online; this.keyRequired = !!j.keyRequired; }
     } catch { /* pas de serveur : mode local */ }
+  },
+
+  async init() {
+    await this.ping();
     if (this.mode === 'server') this.connect();
     this.bc?.addEventListener('message', (e) => emit(e.data));
     addEventListener('storage', (e) => { if (e.key?.startsWith('rot:t:')) emit({ type: 'update', id: e.key.slice(6) }); });
@@ -36,7 +44,11 @@ export const store = {
   connect() {
     if (!('EventSource' in self)) return;
     const es = new EventSource('api/events');
-    es.onmessage = (e) => { try { emit(JSON.parse(e.data)); } catch { /* */ } };
+    es.onmessage = (e) => {
+      let msg; try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type === 'net') this.ping().then(() => emit({ type: 'net' })); // l'adresse publique vient d'apparaître
+      else emit(msg);
+    };
     es.onopen = () => { this.online = true; emit({ type: 'net' }); this.flush(); };
     es.onerror = () => { this.online = false; emit({ type: 'net' }); };
   },
@@ -95,7 +107,8 @@ export const store = {
   // -------------------------------------------------------------- écriture
   async create(t) {
     if (this.mode === 'server') {
-      const r = await this.api('tournaments', { method: 'POST', body: JSON.stringify(t) });
+      const key = LS.get('rot:adminKey', '');
+      const r = await this.api('tournaments', { method: 'POST', body: JSON.stringify(t), headers: key ? { 'x-admin-key': key } : {} });
       this.setPin(t.id, t.adminPin);
       return r;
     }
@@ -258,13 +271,27 @@ export const store = {
     return out;
   },
 
-  /** Adresse à mettre dans les QR codes (IP du réseau local si on est sur localhost). */
+  setAdminKey(k) { LS.set('rot:adminKey', (k || '').trim()); },
+
+  /**
+   * Adresse à mettre dans les QR codes, par ordre de priorité :
+   * adresse saisie à la main › adresse publique du serveur (tunnel / hébergement) ›
+   * adresse de la page si elle est déjà publique › IP du réseau local.
+   */
   baseUrl() {
     const custom = LS.get('rot:baseUrl', '');
     if (custom) return custom.replace(/\/$/, '') + '/';
+    if (this.publicUrl) return this.publicUrl.replace(/\/$/, '') + '/';
     const u = new URL('.', location.href);
     if (/^(localhost|127\.)/.test(u.hostname) && this.lan[0]) u.hostname = this.lan[0];
     return u.href.split('#')[0];
+  },
+
+  /** Comment les téléphones joignent l'application. */
+  reach() {
+    if (this.mode === 'local') return 'local';
+    if (this.publicUrl || !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname)) return 'internet';
+    return 'lan';
   },
   setBaseUrl(v) { LS.set('rot:baseUrl', v || ''); },
   LS,
