@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
-import { buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation } from '../engine.js';
+import { setArchived, buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation } from '../engine.js';
 import { clock, elapsedOf } from '../time.js';
 import { shell } from './shell.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS } from './settings.js';
@@ -46,6 +46,7 @@ export async function view(ctx) {
     <nav class="adminbar" aria-label="Administration"><div class="in"><div class="tabs">
       ${tabs.map(([k, l]) => html`<a href="#/admin/${t.id}/${k}" class="${k === tab ? 'on' : ''}">${l}${k === 'apercu' && unread ? html`<span class="badge">${unread}</span>` : ''}${k === 'equipes' && pendingTeams ? html`<span class="badge">${pendingTeams}</span>` : ''}${k === 'matchs' && toValidate ? html`<span class="badge">${toValidate}</span>` : ''}${k === 'cagnotte' && donsPending ? html`<span class="badge">${donsPending}</span>` : ''}</a>`)}
     </div></div></nav>
+    ${t.archived ? html`<div class="wrap" style="padding-bottom:0"><div class="next-step"><p style="flex:1;margin:0"><b>Tournoi archivé.</b> Les résultats et les comptes restent consultables ; les inscriptions sont fermées.</p><button class="btn ghost sm" data-act="unarchive">Désarchiver</button></div></div>` : ''}
     <main class="wrap" id="admin">${body}</main>`,
     mount(root) {
       const stop = startTimers(root);
@@ -377,9 +378,12 @@ ${connexionCard(t)}
           <label class="btn ghost">Restaurer une sauvegarde<input type="file" accept=".json" data-act="import-json" hidden></label>
         </div>
         <p class="hint" style="margin:0">Faites une sauvegarde en cours de journée : c’est votre roue de secours.</p></div>
+      <div class="card stack"><h3 style="margin:0">${t.archived ? 'Tournoi archivé' : 'Archiver le tournoi'}</h3>
+        <p class="hint" style="margin:0">${t.archived ? `Archivé le ${new Date(t.archivedAt).toLocaleDateString('fr-FR')}. Il reste consultable (résultats, exports) ; les inscriptions sont fermées.` : 'Une fois le tournoi terminé : il quitte la liste des tournois en cours, garde tous ses résultats et ses comptes, et les inscriptions se ferment. Vous pourrez le désarchiver à tout moment.'}</p>
+        <div><button class="btn ${t.archived ? '' : 'ghost'}" data-act="${t.archived ? 'unarchive' : 'archive'}">${t.archived ? 'Désarchiver' : 'Archiver le tournoi'}</button></div></div>
       <div class="card stack" style="border:1.5px solid #F0C4C4"><h3>Zone sensible</h3><div class="row">
         <button class="btn danger" data-act="reset-scores">Effacer tous les scores</button>
-        <button class="btn danger" data-act="delete">Supprimer le tournoi</button></div>
+        <button class="btn danger" data-act="delete">Supprimer définitivement</button></div>
         ${store.mode === 'server' ? html`<p class="hint" style="margin:0">Code organisateur : <b>${t.adminPin}</b></p>` : ''}</div>
     </div>`;
   },
@@ -724,10 +728,19 @@ async function onClick(ctx, e) {
     case 'reset-scores':
       if (!(await confirmBox('Effacer tous les scores ?', 'Le planning est conservé, tous les résultats sont remis à zéro.', 'Effacer'))) return;
       await save(ctx, (d) => { d.matches.forEach((m) => { if (m.status !== 'bye') { m.status = 'scheduled'; m.sets = []; delete m.tieWinner; delete m.validated; delete m.startedAt; delete m.finishedAt; delete m.timer; } }); }, 'Scores effacés'); rr(); break;
-    case 'delete':
-      if (!(await confirmBox('Supprimer le tournoi ?', `« ${t.name} » et tous ses résultats seront supprimés définitivement.`, 'Supprimer'))) return;
+    case 'archive': case 'unarchive':
+      await save(ctx, (d) => setArchived(d, act === 'archive'), act === 'archive' ? 'Tournoi archivé' : 'Tournoi désarchivé');
+      rr(); break;
+    case 'delete': {
+      const r = await modal({ title: 'Supprimer définitivement ?', ok: 'Supprimer', danger: true,
+        body: html`<p style="margin:0">« ${t.name} », ses équipes, ses résultats, la buvette et la cagnotte seront <b>effacés sans retour possible</b>.${t.archived ? '' : html` <br>Pour simplement le ranger, utilisez plutôt <b>Archiver</b>.`}</p>
+          <label class="f">Tapez le nom du tournoi pour confirmer<input type="text" name="name" required autocomplete="off" placeholder="${t.name}"></label>
+          <p class="hint" style="margin:0">Conseil : téléchargez d’abord la sauvegarde complète (.json) ci-dessus.</p>` });
+      if (!r) return;
+      if (r.name.trim().toLowerCase() !== t.name.trim().toLowerCase()) return toast('Le nom ne correspond pas : rien n’a été supprimé', 'err');
       try { await store.remove(t.id); toast('Tournoi supprimé'); location.hash = '#/'; } catch (err) { toast(err.message, 'err'); }
       break;
+    }
     default: break;
   }
 }

@@ -1,13 +1,27 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, fmtDate, euros, plural, $, $$ } from '../ui.js';
-import { newTournament, buildSchedule, uid, SPORTS } from '../engine.js';
+import { newTournament, buildSchedule, uid, SPORTS, setArchived } from '../engine.js';
 import { buildDemo, simulate, DEMOS } from '../demo.js';
 import { shell } from './shell.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
 
 // ------------------------------------------------------------------ accueil
+let showArch = false;
+
 export async function homeView(ctx) {
   const list = await store.list();
+  const isArch = (t) => !!t.archived;
+  const active = list.filter((t) => !isArch(t));
+  const archived = list.filter(isArch).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const canEdit = (t) => store.mode === 'local' || !!store.pin(t.id);
+  const card = (t) => html`<div class="tcard" style="--c:${t.theme || '#0B6E2E'};${isArch(t) ? 'opacity:.85' : ''}" data-tid="${t.id}" data-name="${t.name}">
+    <a href="#/admin/${t.id}" style="text-decoration:none;color:inherit;display:grid;gap:.5rem">
+      <h3>${t.name}</h3>
+      <span class="muted">${fmtDate(t.date)}${t.venue ? ` · ${t.venue}` : ''}</span>
+      <div class="row">${isArch(t) ? html`<span class="pill">Archivé</span>` : ''}<span class="pill">${plural(Array.isArray(t.teams) ? t.teams.filter((x) => x.status === 'confirmed').length : t.teams, 'équipe')}</span><span class="pill">${plural(Array.isArray(t.courts) ? t.courts.length : t.courts, 'terrain')}</span>${!isArch(t) && (t.registration?.fee ?? t.fee) ? html`<span class="pill">${euros(t.registration?.fee ?? t.fee)}</span>` : ''}</div>
+    </a>
+    ${canEdit(t) ? html`<div class="row"><button class="linkbtn small" data-act="${isArch(t) ? 'unarchive' : 'archive'}">${isArch(t) ? 'Désarchiver' : 'Archiver'}</button></div>` : ''}
+  </div>`;
   const demoCourts = [
     { c: '#0B6E2E', s: '🏐 Volley', a: 'Les Smasheurs', b: 'Block Party', pa: 6, pb: 4, t: '08:12' },
     { c: '#00897B', s: '⚽ Football', a: 'Filet Mignon', b: 'Ace Ventura', pa: 2, pb: 2, t: '05:40' },
@@ -32,12 +46,11 @@ export async function homeView(ctx) {
     <main class="wrap">
       <section>
         <div class="row between"><h2>Mes tournois</h2><a class="btn" href="#/new">Nouveau tournoi</a></div>
-        ${list.length ? html`<div class="tlist">${list.map((t) => html`<a class="tcard" style="--c:${t.theme || '#0B6E2E'}" href="#/admin/${t.id}">
-            <h3>${t.name}</h3>
-            <span class="muted">${fmtDate(t.date)}${t.venue ? ` · ${t.venue}` : ''}</span>
-            <div class="row"><span class="pill">${plural(Array.isArray(t.teams) ? t.teams.filter((x) => x.status === 'confirmed').length : t.teams, 'équipe')}</span><span class="pill">${plural(Array.isArray(t.courts) ? t.courts.length : t.courts, 'terrain')}</span>${(t.registration?.fee ?? t.fee) ? html`<span class="pill">${euros(t.registration?.fee ?? t.fee)} / équipe</span>` : ''}</div>
-          </a>`)}</div>`
-        : html`<div class="empty"><p><b>Aucun tournoi pour l’instant.</b></p><p>Créez le vôtre en quelques minutes ou partez d’un exemple ci-dessous.</p></div>`}
+        ${active.length ? html`<div class="tlist">${active.map(card)}</div>`
+        : html`<div class="empty"><p><b>${archived.length ? 'Aucun tournoi en cours.' : 'Aucun tournoi pour l’instant.'}</b></p><p>Créez le vôtre en quelques minutes ou partez d’un exemple ci-dessous.</p></div>`}
+        ${archived.length ? html`<details class="section" ${showArch ? raw('open') : ''} data-arch><summary style="cursor:pointer;font-weight:600">Archives (${archived.length})</summary>
+          <div class="stack" style="margin-top:.8rem">${archived.length > 6 ? html`<input type="search" data-arch-q placeholder="Rechercher dans les archives" style="max-width:360px">` : ''}
+          <div class="tlist" data-arch-list>${archived.map(card)}</div></div></details>` : ''}
       </section>
       <section class="section">
         <h2>Partir d’un exemple</h2>
@@ -65,8 +78,21 @@ export async function homeView(ctx) {
       <p class="small muted section">${store.mode === 'local' ? 'Mode autonome : vos tournois sont enregistrés dans ce navigateur. Lancez le serveur Rotation pour partager les scores entre téléphones.' : 'Connecté au serveur Rotation : les scores sont partagés en direct entre tous les appareils du réseau.'}</p>
     </main>`,
     mount(root) {
+      root.querySelector('[data-arch]')?.addEventListener('toggle', (e) => { showArch = e.target.open; });
+      root.querySelector('[data-arch-q]')?.addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase();
+        root.querySelectorAll('[data-arch-list] [data-tid]').forEach((el) => { el.hidden = q && !el.dataset.name.toLowerCase().includes(q); });
+      });
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act=admin-key]')) { await askAdminKey(); return ctx.rerender(); }
+        const ar = e.target.closest('[data-act=archive],[data-act=unarchive]');
+        if (ar) {
+          const c = ar.closest('[data-tid]');
+          const on = ar.dataset.act === 'archive';
+          try { await store.mutate(c.dataset.tid, (d) => setArchived(d, on)); toast(on ? `« ${c.dataset.name} » archivé` : `« ${c.dataset.name} » remis dans les tournois en cours`, 'ok'); showArch = !on ? showArch : true; ctx.rerender(); }
+          catch (err) { toast(err.message, 'err'); }
+          return;
+        }
         const b = e.target.closest('[data-act=demo]');
         if (!b) return;
         b.disabled = true;

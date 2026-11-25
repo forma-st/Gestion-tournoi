@@ -90,7 +90,7 @@ export async function registerView(ctx) {
   const { t } = ctx;
   const r = t.registration;
   const left = placesLeft(t);
-  const closed = !r.open || (r.deadline && new Date(r.deadline + 'T23:59:59') < new Date());
+  const closed = !r.open || t.archived || (r.deadline && new Date(r.deadline + 'T23:59:59') < new Date());
   return {
     title: `Inscription · ${t.name}`,
     html: html`<header class="topbar" style="background:${t.theme || 'var(--ink)'}"><div class="in"><a class="brand ${contrastInk(t.theme || '#0F2A17')}" href="#/p/${t.id}" style="${contrastInk(t.theme || '#0F2A17') ? 'color:var(--ink)' : ''}">${logo}<span>${t.name}</span></a></div></header>
