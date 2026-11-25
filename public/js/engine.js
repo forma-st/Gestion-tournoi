@@ -518,8 +518,11 @@ export function assignReferees(t, matches, onlySlots = null) {
     if (onlySlots && !onlySlots.includes(s)) { for (const m of bySlot[s]) if (m.referee) count[m.referee] = (count[m.referee] || 0) + 1; continue; }
     const busy = playingAt(s);
     const used = new Set();
+    const free = confirmed.filter((id) => !busy.has(id));
     for (const m of bySlot[s]) {
-      const cands = confirmed.filter((id) => !busy.has(id) && !used.has(id));
+      let cands = confirmed.filter((id) => !busy.has(id) && !used.has(id));
+      // Pas assez d'équipes libres (ex. 7 équipes sur 3 terrains) : l'équipe au repos arbitre aussi les autres terrains
+      if (!cands.length) cands = free.slice().sort((a, b) => [...bySlot[s]].filter((x) => x.referee === a).length - [...bySlot[s]].filter((x) => x.referee === b).length);
       if (!cands.length) { m.referee = null; continue; }
       const nextBusy = playingAt(s + 1);
       cands.sort((a, b) =>

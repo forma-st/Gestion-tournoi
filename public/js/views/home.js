@@ -149,11 +149,11 @@ export function compareTable(opts, t) {
       <thead><tr><th>Formule</th><th class="n">Matchs</th><th class="n">Par équipe</th><th class="n">Durée</th><th class="n">Fin</th><th></th></tr></thead>
       <tbody>${opts.map((o) => {
         const on = (t.format.legs || 1) === o.legs && (t.format.finalsTop || 0) === o.top;
-        return html`<tr class="${on ? 'me' : ''}">
+        return html`<tr class="${on ? 'chosen-row' : ''}">
           <td><b>${o.legs === 1 ? 'Chacun se rencontre 1 fois' : `Chacun se rencontre ${o.legs} fois`}</b>${o.top ? ' + demi-finales et finale' : ''}<br><span class="hint">${new Set(t.courts.map((c) => c.sport)).size < 2 ? (o.legs === 2 ? 'aller-retour' : o.legs === 3 ? 'trois fois' : 'une fois') : o.legs === 1 ? 'dans un seul sport, réparti équitablement' : `dans ${o.legs} sports différents`}</span></td>
           <td class="n">${o.matches}</td><td class="n">${o.minM === o.maxM ? o.minM : `${o.minM}–${o.maxM}`}${o.top ? '+' : ''}</td>
           <td class="n">${Math.floor(o.playMin / 60)} h ${String(o.playMin % 60).padStart(2, '0')}</td><td class="n"><b>${o.end}</b></td>
-          <td>${on ? html`<span class="pill ok">Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
+          <td>${on ? html`<span class="pill chosen">✓ Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
       })}</tbody></table></div>
   </div>`;
 }

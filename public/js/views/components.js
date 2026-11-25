@@ -1,5 +1,6 @@
 import { qrSvg } from '../ui.js';
 import { elapsedOf } from '../time.js';
+import { hornOnce, soundReady, unlock, horn } from '../sound.js';
 import { html, raw, sides, scoreText, matchTime, phaseLabel, teamName, sportOf, contrastInk, esc } from '../ui.js';
 import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS } from '../engine.js';
 
@@ -17,7 +18,7 @@ export function matchRow(ctx, m, opts = {}) {
   const winB = m.status === 'done' && s.winner && s.winner === s.b;
   const res = mine && m.status === 'done' ? (s.winner === opts.me ? 'win' : s.winner ? 'loss' : '') : '';
   return html`<div class="mrow ${m.status === 'live' ? 'live' : ''} ${mine || refMine ? 'mine' : ''}" data-mid="${m.id}">
-    <div class="time">${matchTime(t, m)}<small>${court ? court.name : ''}</small></div>
+    <div class="time">${court ? html`<span class="ccourt" style="--c:${court.color}">${court.name.replace(/^Terrain\s*/i, 'T')}</span>` : ''}<small>${matchTime(t, m)}</small></div>
     <div class="ta ${winA ? 'w' : ''} ${s.tbdA ? 'tbd' : ''}">${s.nameA}</div>
     <div class="sc ${res}">${m.status === 'done' || m.status === 'live' ? (sc.main || '0-0') : 'vs'}${sc.detail ? html`<small>${sc.detail}</small>` : ''}</div>
     <div class="tb ${winB ? 'w' : ''} ${s.tbdB ? 'tbd' : ''}">${s.nameB}</div>
@@ -198,3 +199,28 @@ export function startTimers(root) {
 export const fmtClock = (ms) => { const s = Math.ceil(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 
 export { POOL_LETTERS };
+
+/** Corne de brume à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
+export function watchHorn(t) {
+  const check = () => {
+    const live = t.matches.filter((m) => m.status === 'live' && m.timer?.running);
+    for (const m of live) {
+      const dur = (scoringFor(t, m).durationMin || 0) * 60000;
+      if (dur && elapsedOf(m.timer) >= dur) { hornOnce(`${t.id}:${m.slot}:${m.timer.since}`); break; }
+    }
+  };
+  check();
+  const h = setInterval(check, 500);
+  return () => clearInterval(h);
+}
+
+/** Bouton d'activation du son (obligatoire avant toute lecture dans les navigateurs). */
+export const soundButton = (cls = '') => html`<button class="btn ghost sm ${cls}" data-act="sound" title="La corne de brume retentit à la fin du temps de chaque rotation">${soundReady() ? '🔊 Son activé' : '🔇 Activer le son'}</button>`;
+
+/** Gestion des clics sur le bouton son : active, puis fait entendre la corne pour vérifier le volume. */
+export async function onSoundClick(e, rerender) {
+  const b = e.target.closest('[data-act=sound]');
+  if (!b) return false;
+  if (await unlock()) { horn(1); b.textContent = '🔊 Son activé'; } else b.textContent = 'Son indisponible';
+  return true;
+}

@@ -6,7 +6,7 @@ import { buildDemo } from '../demo.js';
 import { suggestFormats } from '../club.js';
 import { tournamentRules } from '../rules.js';
 import { shell } from './shell.js';
-import { sectionFormat, sectionRegistration, applyField, previewDay, previewCard, courtStepper, FORMATS } from './settings.js';
+import { sectionFormat, sectionRegistration, applyField, previewDay, previewCard, courtStepper, FORMATS, sportRulesBlock, applySportRule } from './settings.js';
 import { createTournament } from './home.js';
 
 // ------------------------------------------------------------------ modèles
@@ -40,13 +40,6 @@ function getDraft() {
 export function saveDraft(t) { try { sessionStorage.setItem('rot:draft', JSON.stringify(t)); } catch { /* */ } }
 const expectedOf = (t) => Math.max(2, +t._expected || 8);
 
-/** Durée de match estimée pour des matchs aux points (minutes). */
-function estimateMinutes(sc) {
-  if (sc.mode === 'time') return +sc.durationMin || 10;
-  if (sc.durationMin) return +sc.durationMin;
-  const pts = (+sc.pointsPerSet || 25) * (sc.setsToWin > 1 ? sc.setsToWin * 2 - 0.5 : 1);
-  return Math.round(pts * 0.55);
-}
 
 // ------------------------------------------------------------------ étapes
 const sel = (path, value, options) => html`<select data-path="${path}">${Object.entries(options).map(([k, l]) => html`<option value="${k}" ${String(value) === String(k) ? raw('selected') : ''}>${l}</option>`)}</select>`;
@@ -106,30 +99,7 @@ const STEPS = [
   {
     key: 'jeu', label: 'Au temps ou aux points',
     help: html`<p><b>Au temps</b> : le match dure X minutes, le plus de points (ou de buts) gagne, le nul est possible. Le planning est très fiable.</p><p><b>Aux points</b> : on joue un set de 21 ou 25 points (ou plusieurs sets). La durée varie selon le niveau.</p><p>La <b>rotation</b>, c’est le match plus le changement de terrain : comptez 2 à 3 minutes de plus que le match.</p>`,
-    body: (t) => {
-      const sports = [...new Set(t.courts.map((c) => c.sport))];
-      const ptsPresets = Object.fromEntries(Object.entries(SCORING_PRESETS).filter(([, p]) => p.mode === 'points').map(([k, p]) => [k, p.label]));
-      return html`<div class="stack">
-        ${sports.map((sp) => {
-          const c = t.courts.find((x) => x.sport === sp);
-          const sc = c.scoring || t.scoring;
-          return html`<div class="card flat stack" style="gap:.6rem"><b>${SPORTS[sp]?.icon} ${SPORTS[sp]?.label}${t.courts.filter((x) => x.sport === sp).length > 1 ? html` <span class="hint">(${t.courts.filter((x) => x.sport === sp).length} terrains)</span>` : ''}</b>
-            <div class="row" role="radiogroup">
-              <label class="chip ${sc.mode === 'time' ? 'on' : ''}"><input type="radio" name="mode-${sp}" data-act="mode" data-sport="${sp}" value="time" ${sc.mode === 'time' ? raw('checked') : ''}>⏱️ Au temps</label>
-              <label class="chip ${sc.mode !== 'time' ? 'on' : ''}"><input type="radio" name="mode-${sp}" data-act="mode" data-sport="${sp}" value="points" ${sc.mode !== 'time' ? raw('checked') : ''}>🔢 Aux points</label>
-            </div>
-            ${sc.mode === 'time'
-              ? html`<label class="f" style="max-width:220px">Durée du match (minutes)<input type="number" min="3" max="90" data-act="dur" data-sport="${sp}" value="${sc.durationMin || 10}"></label>`
-              : html`<label class="f">Format des sets<select data-act="preset" data-sport="${sp}">${Object.entries(ptsPresets).map(([k, l]) => html`<option value="${k}" ${sc.preset === k ? raw('selected') : ''}>${l}</option>`)}</select><span class="hint">Durée estimée : environ ${estimateMinutes(sc)} min</span></label>`}
-          </div>`;
-        })}
-        <div class="grid3">
-          <label class="f">Durée d’une rotation (min)<input type="number" min="5" max="120" data-type="num" data-path="slotMinutes" value="${t.slotMinutes}"><span class="hint">Conseillé : ${Math.max(...t.courts.map((c) => estimateMinutes(c.scoring || t.scoring))) + 2} min</span></label>
-          <label class="f">Points au classement ${sel('scoring.ranking', t.scoring.ranking || 'win3', Object.fromEntries(Object.entries(RANKING_RULES).map(([k, r]) => [k, r.label])))}</label>
-          <label class="f">Arbitrage ${sel('referees', t.referees || 'none', { teams: 'Par l’équipe au repos', none: 'Les équipes s’arbitrent' })}</label>
-        </div>
-      </div>`;
-    },
+    body: (t) => sportRulesBlock(t, { extra: true }),
   },
   {
     key: 'formule', label: 'La formule',
@@ -150,7 +120,7 @@ const STEPS = [
         <div class="stack" style="gap:.5rem">${sugg.map((x) => {
           const on = same(x.format);
           return html`<button type="button" class="tile ${on ? 'on' : ''}" data-act="pick" data-f="${JSON.stringify(x.format)}" style="${x.fits ? '' : 'opacity:.55'}">
-            <span class="row between"><b>${FORMATS[x.format.type]?.icon || ''} ${x.label}</b>${x === best ? html`<span class="pill ok">Conseillée</span>` : on ? html`<span class="pill">Choisie</span>` : ''}</span>
+            <span class="row between"><b>${FORMATS[x.format.type]?.icon || ''} ${x.label}</b><span class="row" style="gap:.3rem">${x === best ? html`<span class="pill">Conseillée</span>` : ''}${on ? html`<span class="pill chosen">✓ Choisie</span>` : ''}</span></span>
             <small>${x.matches} matchs · au moins ${x.minPerTeam} par équipe · fin vers <b>${x.end}</b>${x.fits ? '' : ' (trop tard)'}</small></button>`;
         })}</div>
         <details><summary class="small" style="cursor:pointer">Réglages avancés de la formule</summary><div style="margin-top:.8rem">${sectionFormat(t)}</div></details>
@@ -206,16 +176,10 @@ export async function wizardView(ctx) {
     </main>`,
     mount(root) {
       const save = () => { saveDraft(t); ctx.rerender(); };
-      const forSport = (sp, fn) => { for (const c of t.courts.filter((x) => x.sport === sp)) fn(c); t.scoring = { ...(t.courts[0].scoring || t.scoring) }; };
       root.addEventListener('change', (e) => {
         const el = e.target;
         if (el.matches('[data-preview-teams]')) { t._expected = Math.max(2, +el.value || 2); return save(); }
-        if (el.dataset.act === 'mode') {
-          forSport(el.dataset.sport, (c) => { c.scoring = el.value === 'time' ? { ...SCORING_PRESETS['time-12'], durationMin: (c.scoring || t.scoring).durationMin || 10, ranking: t.scoring.ranking || 'win3', preset: 'time-12' } : { ...SCORING_PRESETS['volley-1x25'], ranking: t.scoring.ranking || 'win3', preset: 'volley-1x25' }; });
-          return save();
-        }
-        if (el.dataset.act === 'dur') { forSport(el.dataset.sport, (c) => { c.scoring = { ...(c.scoring || t.scoring), mode: 'time', durationMin: Math.max(3, +el.value || 10) }; }); return save(); }
-        if (el.dataset.act === 'preset') { forSport(el.dataset.sport, (c) => { c.scoring = { ...SCORING_PRESETS[el.value], ranking: (c.scoring || t.scoring).ranking, preset: el.value }; }); return save(); }
+        if (applySportRule(t, el)) return save();
         if (!el.dataset.path) return;
         applyField(t, el);
         if (el.dataset.path === 'scoring.ranking') for (const c of t.courts) if (c.scoring) c.scoring.ranking = el.value;

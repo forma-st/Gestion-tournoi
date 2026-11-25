@@ -51,6 +51,7 @@ export function applyField(t, el) {
     return false;
   }
   if (path === 'scoring.preset') { t.scoring = { ...SCORING_PRESETS[v], preset: v }; return false; }
+  if (path === 'scoring.ranking') { t.scoring.ranking = v; for (const c of t.courts) if (c.scoring) c.scoring.ranking = v; return false; }
   if (path === 'finalsScoring.preset') { t.finalsScoring = v ? { ...SCORING_PRESETS[v], preset: v } : null; return false; }
   setPath(t, path, v);
   if (path === 'registration.barCard.enabled' && v) { t.registration.barCard.price ??= 10; t.registration.barCard.points ??= 12; t.registration.barCard.per ??= 'team'; }
@@ -150,24 +151,70 @@ export function sectionFormat(t) {
   </div>`;
 }
 
+
+/** Durée de match estimée (minutes) : durée fixée au temps, sinon estimation selon les points à marquer. */
+export function estimateMinutes(sc) {
+  if (sc.mode === 'time') return +sc.durationMin || 10;
+  if (sc.durationMin) return +sc.durationMin;
+  const pts = (+sc.pointsPerSet || 25) * (sc.setsToWin > 1 ? sc.setsToWin * 2 - 0.5 : 1);
+  return Math.round(pts * 0.55);
+}
+
+/** Règle de jeu, sport par sport : au temps (minutes saisies librement) ou aux points (format des sets). */
+export function sportRulesBlock(t, { extra = false } = {}) {
+      const sports = [...new Set(t.courts.map((c) => c.sport))];
+      const ptsPresets = Object.fromEntries(Object.entries(SCORING_PRESETS).filter(([, p]) => p.mode === 'points').map(([k, p]) => [k, p.label]));
+      return html`<div class="stack">
+        ${sports.map((sp) => {
+          const c = t.courts.find((x) => x.sport === sp);
+          const sc = c.scoring || t.scoring;
+          return html`<div class="card flat stack" style="gap:.6rem"><b>${SPORTS[sp]?.icon} ${SPORTS[sp]?.label}${t.courts.filter((x) => x.sport === sp).length > 1 ? html` <span class="hint">(${t.courts.filter((x) => x.sport === sp).length} terrains)</span>` : ''}</b>
+            <div class="row" role="radiogroup">
+              <label class="chip ${sc.mode === 'time' ? 'on' : ''}"><input type="radio" name="mode-${sp}" data-act="mode" data-sport="${sp}" value="time" ${sc.mode === 'time' ? raw('checked') : ''}>⏱️ Au temps</label>
+              <label class="chip ${sc.mode !== 'time' ? 'on' : ''}"><input type="radio" name="mode-${sp}" data-act="mode" data-sport="${sp}" value="points" ${sc.mode !== 'time' ? raw('checked') : ''}>🔢 Aux points</label>
+            </div>
+            ${sc.mode === 'time'
+              ? html`<label class="f" style="max-width:220px">Durée du match (minutes)<input type="number" min="3" max="90" data-act="dur" data-sport="${sp}" value="${sc.durationMin || 10}"></label>`
+              : html`<label class="f">Format des sets<select data-act="preset" data-sport="${sp}">${Object.entries(ptsPresets).map(([k, l]) => html`<option value="${k}" ${sc.preset === k ? raw('selected') : ''}>${l}</option>`)}</select><span class="hint">Durée estimée : environ ${estimateMinutes(sc)} min</span></label>`}
+          </div>`;
+        })}
+        ${extra ? html`<div class="grid3">
+          <label class="f">Durée d’une rotation (min)<input type="number" min="5" max="120" data-type="num" data-path="slotMinutes" value="${t.slotMinutes}"><span class="hint">Conseillé : ${Math.max(...t.courts.map((c) => estimateMinutes(c.scoring || t.scoring))) + 2} min</span></label>
+          <label class="f">Points au classement ${sel('scoring.ranking', t.scoring.ranking || 'win3', Object.fromEntries(Object.entries(RANKING_RULES).map(([k, r]) => [k, r.label])))}</label>
+          <label class="f">Arbitrage ${sel('referees', t.referees || 'none', { teams: 'Par l’équipe au repos', none: 'Les équipes s’arbitrent' })}</label>
+        </div>` : ''}
+      </div>`;
+}
+
+/** Applique un changement de règle de jeu fait dans sportRulesBlock ; renvoie true s'il a été traité. */
+export function applySportRule(t, el) {
+  const act = el.dataset?.act;
+  if (!['mode', 'dur', 'preset'].includes(act)) return false;
+  const sp = el.dataset.sport;
+  const each = (fn) => { for (const c of t.courts.filter((x) => x.sport === sp)) fn(c); t.scoring = { ...(t.courts[0].scoring || t.scoring) }; };
+  const rk = t.scoring.ranking || 'win3';
+  if (act === 'mode') each((c) => { c.scoring = el.value === 'time' ? { ...SCORING_PRESETS['time-12'], durationMin: (c.scoring || t.scoring).durationMin || 10, ranking: rk, preset: 'time-12' } : { ...SCORING_PRESETS['volley-1x25'], ranking: rk, preset: 'volley-1x25' }; });
+  if (act === 'dur') each((c) => { c.scoring = { ...(c.scoring || t.scoring), mode: 'time', durationMin: Math.max(1, Math.min(120, +el.value || 10)) }; });
+  if (act === 'preset') each((c) => { c.scoring = { ...SCORING_PRESETS[el.value], ranking: (c.scoring || t.scoring).ranking || rk, preset: el.value }; });
+  return true;
+}
+
 export function sectionRules(t) {
   const sc = t.scoring;
   return html`<div class="stack">
-    <div class="grid2">
-      <label class="f">Règle de jeu par défaut ${sel('scoring.preset', sc.preset || '', presetOptions(false))}<span class="hint">Chaque terrain peut avoir sa propre règle (onglet Terrains).</span></label>
-      <label class="f">Phases finales ${sel('finalsScoring.preset', t.finalsScoring?.preset || '', { '': 'Même règle que les poules', ...presetOptions(false) })}</label>
-    </div>
-    ${sc.mode === 'points' ? html`<div class="grid3">
+    ${sportRulesBlock(t)}
+    <label class="f" style="max-width:420px">Phases finales ${sel('finalsScoring.preset', t.finalsScoring?.preset || '', { '': 'Même règle que pendant le tournoi', ...presetOptions(false) })}</label>
+    ${sc.mode === 'points' && !t.courts.some((c) => c.scoring) ? html`<div class="grid3">
       <label class="f">Sets gagnants<input type="number" min="1" max="3" data-type="num" data-path="scoring.setsToWin" value="${sc.setsToWin}"></label>
       <label class="f">Points par set<input type="number" min="5" max="50" data-type="num" data-path="scoring.pointsPerSet" value="${sc.pointsPerSet}"></label>
       <label class="f">Set décisif<input type="number" min="5" max="50" data-type="num" data-path="scoring.tiebreakPoints" value="${sc.tiebreakPoints}"></label>
       <label class="f">Plafond (0 = aucun)<input type="number" min="0" max="60" data-type="num" data-path="scoring.cap" value="${sc.cap || 0}"></label>
       <label class="check" style="align-self:end"><input type="checkbox" data-path="scoring.winBy2" ${sc.winBy2 !== false ? raw('checked') : ''}> 2 points d’écart</label>
-    </div>` : html`<div class="grid3"><label class="f">Durée d’un match (min)<input type="number" min="3" max="90" data-type="num" data-path="scoring.durationMin" value="${sc.durationMin}"></label></div>`}
+    </div>` : ''}
     <label class="f">Points au classement ${sel('scoring.ranking', sc.ranking || 'win3', Object.fromEntries(Object.entries(RANKING_RULES).map(([k, r]) => [k, r.label])))}<span class="hint">Égalités départagées par victoires, ratio de sets, ratio de points, puis confrontation directe.</span></label>
     <div class="grid3">
-      <label class="f">Durée d’une rotation (min)<input type="number" min="5" max="120" data-type="num" data-path="slotMinutes" value="${t.slotMinutes}"><span class="hint">Match + changement de terrain.</span></label>
-      <label class="f">Arbitrage ${sel('referees', t.referees || 'none', { teams: 'Par les équipes au repos', none: 'Auto-arbitrage / bénévoles' })}</label>
+      <label class="f">Durée d’une rotation (min)<input type="number" min="5" max="120" data-type="num" data-path="slotMinutes" value="${t.slotMinutes}"><span class="hint">Match + changement de terrain (conseillé : ${Math.max(...t.courts.map((c) => estimateMinutes(c.scoring || t.scoring))) + 2} min).</span></label>
+      <label class="f">Arbitrage ${sel('referees', t.referees || 'none', { teams: 'Par les équipes au repos (sur tous les terrains si une seule est libre)', none: 'Auto-arbitrage / bénévoles' })}</label>
       <label class="check" style="align-self:end"><input type="checkbox" data-path="scoreValidation" ${t.scoreValidation ? raw('checked') : ''}> Valider chaque score avant publication</label>
     </div>
     ${t.scoring.mode === 'time' || t.courts.some((c) => c.scoring?.mode === 'time') ? html`<label class="f">Chrono des matchs au temps ${sel('timerControl', t.timerControl || 'organizer', { organizer: 'Géré par l’organisation (« Lancer la rotation » démarre tous les matchs)', players: 'Géré par les joueurs sur chaque feuille de match' })}</label>` : ''}

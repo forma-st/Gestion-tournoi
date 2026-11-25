@@ -1,5 +1,5 @@
 import { store } from '../store.js';
-import { html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
+import { activeSponsors, sponsorBadge, html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
 import { BYE, slotTime } from '../engine.js';
 import { matchRow, rankingsView, startTimers, standingsTable } from './components.js';
 import { charityCard, declareDonation } from './bar.js';
@@ -116,7 +116,7 @@ function matches(ctx, role) {
     ${help}
     ${me ? html`<div class="stack" style="margin-bottom:1rem">${play ? card(play, false) : html`<div class="mycard"><b>Plus de match prévu pour l’instant.</b><span class="muted">Consultez le classement ou le tableau final.</span></div>`}${ref ? card(ref, true) : ''}${myPool(ctx, me)}</div>` : ''}
     <div class="filters">${Object.entries({ ...(me ? { mine: 'Mes matchs' } : {}), all: 'Tous', live: 'En cours', next: 'À venir', done: 'Terminés' }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div>
-    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>${slotTime(t, +s)}</h3><span class="muted small">Rotation ${+s + 1}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
+    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>Rotation ${+s + 1}</h3><span class="slot-time">${slotTime(t, +s)}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
 }
 
 /** La poule de l'équipe (phase en cours) : classement et matchs restants. */
@@ -152,7 +152,7 @@ function infos(ctx, role) {
     </div>
     ${(t.announcements || []).length ? html`<div class="card"><h3>Annonces</h3>${t.announcements.slice().reverse().map((a) => html`<p><span class="muted small">${new Date(a.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span> ${a.text}</p>`)}</div>` : ''}
     <form class="card stack" data-form="msg"><h3>Écrire à l’organisation</h3><textarea name="text" maxlength="500" required placeholder="Une question, un retard, un problème sur un terrain…"></textarea><div><button class="btn">Envoyer</button></div></form>
-    ${(t.sponsors || []).filter((s) => s.name).length ? html`<div class="card"><h3>Merci à nos partenaires</h3><div class="row">${t.sponsors.filter((s) => s.name).map((s) => (s.url ? html`<a class="pill" href="${s.url}" target="_blank" rel="noopener">${s.name}</a>` : html`<span class="pill">${s.name}</span>`))}</div></div>` : ''}
+    ${activeSponsors(t).length ? html`<div class="card"><h3>Merci à nos partenaires</h3><div class="row" style="gap:.8rem">${activeSponsors(t).map((s) => sponsorBadge(s, { height: 56 }))}</div></div>` : ''}
     <p class="small muted">${role?.role === 'team' ? '' : 'Organisateur ? '}<a href="#/admin/${t.id}">Espace organisateur</a></p>
   </div>`;
 }

@@ -26,18 +26,31 @@ export async function view(ctx) {
     <section class="poster page" style="--c:var(--ink)"><h1>${t.name}</h1><div style="font-size:2rem;font-weight:700">Vos matchs, les classements, les infos</div>
       <div class="qr">${qrSvg(`${base}#/t/${t.id}`)}</div><div style="font-size:1.5rem">Scannez pour suivre le tournoi sur votre téléphone</div></section>`;
   } else if (kind === 'feuilles') {
-    const ms = t.matches.filter((m) => m.status !== 'bye' && m.slot != null).sort((a, b) => a.slot - b.slot);
-    body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2>${t.name} : feuilles de match</h2>${ms.map((m) => {
-      const s = sides(t, m, ctx.resolved);
-      const c = t.courts.find((x) => x.id === m.courtId);
-      const sc = scoringFor(t, m);
-      const n = sc.mode === 'time' ? 1 : sc.setsToWin * 2 - 1;
-      return html`<div class="papersheet"><div>
-        <div class="row between"><b style="font-size:1.2rem">${matchTime(t, m)} · ${c?.name} ${sportOf(c).icon}</b><span>${phaseLabel(t, m)}${m.referee ? ` · Arbitre : ${teamName(t, m.referee)}` : ''}</span></div>
-        <table style="margin-top:.5rem"><thead><tr><th style="width:40%">Équipe</th>${Array.from({ length: n }, (_, i) => html`<th>${sc.mode === 'time' ? 'Score' : `Set ${i + 1}`}</th>`)}<th>Signature</th></tr></thead>
-        <tbody><tr><td style="text-align:left">${s.nameA}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr><tr><td style="text-align:left">${s.nameB}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr></tbody></table></div>
-        <div style="text-align:center;font-size:.75rem"><div class="qr">${qrSvg(`${base}#/match/${t.id}/${m.id}?k=${m.token}`)}</div>Saisir en ligne</div></div>`;
-    })}</div>`;
+    const rot = ctx.route.query.rot;
+    const blank = ctx.route.query.vierge === '1';
+    const ms = blank ? [null, null, null] : t.matches.filter((m) => m.status !== 'bye' && m.slot != null && (rot == null || m.slot === +rot)).sort((a, b) => a.slot - b.slot || t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId));
+    const sheet = (m) => {
+      const s = m ? sides(t, m, ctx.resolved) : null;
+      const c = m ? t.courts.find((x) => x.id === m.courtId) : null;
+      const sc = m ? scoringFor(t, m) : t.scoring;
+      const nSets = sc.mode === 'time' ? 1 : sc.setsToWin * 2 - 1;
+      const marks = sc.mode === 'time' ? 30 : Math.max(sc.pointsPerSet || 25, sc.tiebreakPoints || 15) + 5;
+      const grid = () => html`<div class="tally">${Array.from({ length: marks }, (_, i) => html`<span>${i + 1}</span>`)}</div>`;
+      return html`<div class="papersheet">
+        <div class="ps-head"><b>${m ? `Rotation ${m.slot + 1} · ${matchTime(t, m)}` : 'Rotation ……  · Heure ……'}</b>
+          <span>${c ? html`<span class="ccourt" style="--c:${c.color}">${c.name} ${sportOf(c).icon} ${sportOf(c).label}</span>` : 'Terrain …………  Sport …………'}</span>
+          <span>${m ? phaseLabel(t, m) : ''}${s?.referee ? ` · Arbitre : ${teamName(t, s.referee)}` : m ? '' : ' Arbitre : …………………'}</span></div>
+        <p class="ps-rule">${sc.mode === 'time' ? `Match de ${sc.durationMin} minutes : barrez un numéro à chaque point (ou but) marqué. Score final = dernier numéro barré.` : `${sc.setsToWin > 1 ? `${sc.setsToWin} sets gagnants de ${sc.pointsPerSet} points` : `1 set de ${sc.pointsPerSet} points`}${sc.winBy2 !== false ? ', 2 points d’écart' : ''} : barrez un numéro à chaque point. Une ligne par set.`}</p>
+        <div class="ps-body"><table><tbody>
+          ${[['A', s?.nameA], ['B', s?.nameB]].map(([k, name]) => html`<tr><th class="ps-team">${name || 'Équipe ………………………'}</th>${Array.from({ length: nSets }, (_, i) => html`<td class="ps-grid">${nSets > 1 ? html`<small>Set ${i + 1}</small>` : ''}${grid()}</td>`)}<td class="ps-final"><small>Score</small></td></tr>`)}
+        </tbody></table>
+        ${m ? html`<div class="ps-qr"><div class="qr">${qrSvg(`${base}#/match/${t.id}/${m.id}?k=${m.token}`)}</div><small>Saisie en ligne</small></div>` : ''}</div>
+        <div class="ps-sign"><span>Vainqueur : …………………………</span><span>Signature capitaine A : ……………</span><span>Signature capitaine B : ……………</span></div>
+      </div>`;
+    };
+    body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${t.name} : ${blank ? 'feuilles de match vierges' : rot != null ? `feuilles de la rotation ${+rot + 1}` : 'toutes les feuilles de match'}</h2>
+      <p class="noprint hint">${blank ? '3 feuilles vierges par page, pour un match imprévu ou un match de remplacement.' : 'Une feuille par match. Les scores notés sur papier se reportent ensuite dans l’onglet Matchs (bouton Score), ou en scannant le QR de la feuille.'}</p>
+      ${ms.map(sheet)}</div>`;
   } else if (kind === 'regles') {
     body = html`<section class="poster page" style="--c:var(--court);align-content:start;text-align:left;justify-items:stretch;gap:1rem">
       <h1 style="text-align:center;font-size:3rem;margin:0">${t.name}</h1>

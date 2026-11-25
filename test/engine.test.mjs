@@ -24,7 +24,12 @@ test('multisport 7 équipes / 3 terrains : 7 créneaux, chaque équipe joue 2 fo
   assert.equal(st.matches, 21);
   assert.equal(st.slots, 7);
   // l'équipe au repos arbitre
-  for (let s = 0; s < 7; s++) assert.equal(t.matches.filter((m) => m.slot === s && m.referee).length, 1);
+  // une seule équipe au repos : elle arbitre les 3 terrains de la rotation
+  for (let s = 0; s < 7; s++) {
+    const refs = t.matches.filter((m) => m.slot === s).map((m) => m.referee);
+    assert.equal(refs.filter(Boolean).length, 3);
+    assert.equal(new Set(refs).size, 1);
+  }
   for (const [team, byCourt] of Object.entries(st.courtPerTeam)) {
     const counts = t.courts.map((c) => byCourt[c.id] || 0);
     assert.deepEqual(counts, [2, 2, 2], `répartition ${team}`);

@@ -1,11 +1,12 @@
 import { store } from '../store.js';
-import { html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
+import { imageToDataUrl, html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
 import { setArchived, buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation } from '../engine.js';
 import { clock, elapsedOf } from '../time.js';
 import { shell } from './shell.js';
-import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS } from './settings.js';
+import { applySportRule, sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS, FORMATS } from './settings.js';
 import { compareTable } from './home.js';
-import { matchRow, courtTile, rankingsView, startTimers, STATUS } from './components.js';
+import { matchRow, courtTile, rankingsView, startTimers, STATUS, watchHorn, soundButton, onSoundClick } from './components.js';
+import { unlock, soundWanted } from '../sound.js';
 import { posterCanvas, drawPoster } from './promo.js';
 import { adminBuvette, adminCagnotte, barActions, showCard } from './bar.js';
 import { feesSummary, teamDue, teamFee, barOption, issueTeamCard, findCard, charityTotals } from '../money.js';
@@ -16,17 +17,50 @@ const TABS = [
   ['apercu', 'Aperçu'],
   ['joueurs', 'Joueurs'],
   ['equipes', 'Équipes'],
-  ['accueil', 'Accueil'],
-  ['planning', 'Format & planning'],
-  ['matchs', 'Matchs'],
-  ['classement', 'Classements'],
-  ['terrains', 'Terrains & QR'],
   ['inscriptions', 'Inscriptions & paiement'],
+  ['planning', 'Format & planning'],
+  ['terrains', 'Terrains & QR'],
+  ['promo', 'Promotion'],
   ['buvette', 'Buvette'],
   ['cagnotte', 'Cagnotte'],
-  ['promo', 'Promotion'],
+  ['accueil', 'Accueil'],
+  ['matchs', 'Matchs'],
+  ['classement', 'Classements'],
   ['bilan', 'Bilan & export'],
 ];
+
+
+const fmtKey = (f) => [f.type, f.legs || 1, f.finalsTop || 0, f.pools || 0, f.poolSize || 0, f.finals || ''].join('|');
+const FORMAT_LABEL = (t) => `${FORMATS[t.format.type]?.label || t.format.type}${t.format.legs > 1 ? ' aller-retour' : ''}${t.format.finalsTop ? (t.format.finalsTop === 2 ? ' + finale' : ' + phase finale') : ''}`;
+function lastEnd(t) { const s = Math.max(-1, ...t.matches.filter((m) => m.slot != null).map((m) => m.slot)); return s < 0 ? '—' : slotTime(t, s + 1); }
+
+/** Déroulé chronologique du tournoi : chaque onglet propose l’étape « suivante ». */
+const FLOW = [
+  ['joueurs', 'Avant', 'Inscrire les joueurs'],
+  ['equipes', 'Avant', 'Constituer les équipes'],
+  ['inscriptions', 'Avant', 'Ouvrir les inscriptions et suivre les paiements'],
+  ['planning', 'Avant', 'Choisir la formule et générer le planning'],
+  ['terrains', 'Avant', 'Préparer les terrains et imprimer les QR'],
+  ['promo', 'Avant', 'Faire la promotion'],
+  ['buvette', 'Avant', 'Préparer la buvette'],
+  ['cagnotte', 'Avant', 'Préparer la cagnotte'],
+  ['accueil', 'Jour J', 'Accueillir les équipes (pointage)'],
+  ['apercu', 'Jour J', 'Lancer les rotations'],
+  ['matchs', 'Jour J', 'Suivre les matchs et les scores'],
+  ['classement', 'Fin', 'Classements et podium'],
+  ['bilan', 'Fin', 'Bilan, comptes et archivage'],
+];
+function flowNav(t, tab) {
+  const steps = FLOW.filter(([k]) => k !== 'joueurs' || t.entry === 'players');
+  const i = steps.findIndex(([k]) => k === tab);
+  if (i < 0) return '';
+  const prev = steps[i - 1], next = steps[i + 1];
+  return html`<nav class="flownav" aria-label="Étapes du tournoi">
+    ${prev ? html`<a class="btn ghost" href="#/admin/${t.id}/${prev[0]}">← ${prev[2]}</a>` : html`<span></span>`}
+    <span class="flowpos"><b>${steps[i][1]}</b> · étape ${i + 1}/${steps.length}</span>
+    ${next ? html`<a class="btn" href="#/admin/${t.id}/${next[0]}">Suivant : ${next[2]} →</a>` : html`<span></span>`}
+  </nav>`;
+}
 
 export async function view(ctx) {
   const { t } = ctx;
@@ -47,9 +81,11 @@ export async function view(ctx) {
       ${tabs.map(([k, l]) => html`<a href="#/admin/${t.id}/${k}" class="${k === tab ? 'on' : ''}">${l}${k === 'apercu' && unread ? html`<span class="badge">${unread}</span>` : ''}${k === 'equipes' && pendingTeams ? html`<span class="badge">${pendingTeams}</span>` : ''}${k === 'matchs' && toValidate ? html`<span class="badge">${toValidate}</span>` : ''}${k === 'cagnotte' && donsPending ? html`<span class="badge">${donsPending}</span>` : ''}</a>`)}
     </div></div></nav>
     ${t.archived ? html`<div class="wrap" style="padding-bottom:0"><div class="next-step"><p style="flex:1;margin:0"><b>Tournoi archivé.</b> Les résultats et les comptes restent consultables ; les inscriptions sont fermées.</p><button class="btn ghost sm" data-act="unarchive">Désarchiver</button></div></div>` : ''}
-    <main class="wrap" id="admin">${body}</main>`,
+    <main class="wrap" id="admin">${body}${flowNav(t, tab)}</main>`,
     mount(root) {
       const stop = startTimers(root);
+      const stopHorn = watchHorn(t);
+      if (soundWanted()) unlock();
       const cv = $('#poster', root);
       if (cv) drawPoster(cv, t, 'post', store.baseUrl());
       root.addEventListener('focusin', (e) => { if (e.target.matches('input,textarea,select')) focusKeep = true; });
@@ -57,7 +93,7 @@ export async function view(ctx) {
       root.addEventListener('change', (e) => onChange(ctx, e));
       root.addEventListener('click', (e) => onClick(ctx, e));
       root.addEventListener('submit', (e) => onSubmit(ctx, e));
-      this.cleanup = stop;
+      this.cleanup = () => { stop(); stopHorn(); };
     },
     cleanup: null,
     keep: () => focusKeep,
@@ -190,7 +226,7 @@ const PANELS = {
     const all = t.teams.filter((x) => x.status === 'confirmed');
     const fs = feesSummary(t);
     const nextOf = (id) => t.matches.filter((m) => m.status === 'scheduled' && [resolved[m.id]?.a, resolved[m.id]?.b].includes(id)).sort((a, b) => a.slot - b.slot)[0];
-    return html`<div class="row between"><h2 style="margin:0">Accueil des équipes</h2><span class="muted">${all.filter((x) => x.checkedIn).length}/${all.length} équipes complètes · ${euros(fs.paid + fs.extra)} encaissés</span></div>
+    return html`<div class="row between"><h2 style="margin:0">Accueil des équipes</h2><span class="muted">${all.filter((x) => x.checkedIn).length}/${all.length} équipes arrivées · ${euros(fs.paid + fs.extra)} encaissés</span></div>
       <form data-form="search" class="row" style="margin:.8rem 0"><input type="search" name="q" value="${ctx.route.query.q || ''}" placeholder="Rechercher une équipe ou un joueur" style="max-width:420px"><button class="btn ghost sm">Rechercher</button></form>
       <div class="stack">${teams.map((x) => {
         const players = x.players || [];
@@ -202,15 +238,17 @@ const PANELS = {
         const nm = nextOf(x.id);
         return html`<div class="card" data-team="${x.id}" style="border-left:6px solid ${x.checkedIn ? 'var(--win)' : x.late ? 'var(--ball)' : 'var(--line)'}">
           <div class="row between"><div><h3 style="margin:0">${x.name}</h3><span class="muted small">${x.captain}${x.phone ? html` · <a href="tel:${x.phone.replace(/\s/g, '')}">${x.phone}</a>` : ''}${nm ? ` · prochain match ${slotTime(t, nm.slot)}` : ''}</span></div>
-            <div class="row">${x.checkedIn ? html`<span class="pill ok">Équipe complète</span>` : n ? html`<span class="pill warn">${n}/${r.minPlayers} joueurs</span>` : html`<span class="pill">Pas encore arrivée</span>`}${x.late ? html`<span class="pill warn">En retard</span>` : ''}</div></div>
-          <div class="row" style="margin:.7rem 0">${players.map((p) => html`<button class="btn ${present.includes(p) ? '' : 'ghost'} sm" data-act="present" data-p="${p}" aria-pressed="${present.includes(p)}">${present.includes(p) ? '✓ ' : ''}${p}</button>`)}<button class="btn ghost sm" data-act="add-player">+ Joueur</button></div>
+            <div class="row">${x.late && !x.checkedIn ? html`<span class="pill warn">En retard</span>` : ''}
+              ${x.checkedIn ? html`<button class="btn sm" data-act="arrive" aria-pressed="true">✓ Arrivée</button>` : html`<button class="btn ghost sm" data-act="arrive" aria-pressed="false" style="min-width:150px">Pointer l’arrivée</button>`}</div></div>
+          <details style="margin:.5rem 0" ${n ? raw('open') : ''}><summary class="small muted" style="cursor:pointer">Pointer les joueurs (facultatif)${n ? ` · ${n} présent${n > 1 ? 's' : ''}` : ''}</summary>
+            <div class="row" style="margin-top:.5rem">${players.map((p) => html`<button class="btn ${present.includes(p) ? '' : 'ghost'} sm" data-act="present" data-p="${p}" aria-pressed="${present.includes(p)}">${present.includes(p) ? '✓ ' : ''}${p}</button>`)}<button class="btn ghost sm" data-act="add-player">+ Joueur</button></div></details>
           <div class="row between">
             <div class="row">${r.barCard?.enabled ? (x.barCard ? html`<button class="btn ghost sm" data-act="team-card">💳 Carte ${x.barCard} · ${findCard(t, x.barCard)?.balance ?? '?'} pts</button>` : !paid ? html`<label class="check small"><input type="checkbox" data-act="bar-opt" ${x.barOption ? raw('checked') : ''}> Carte buvette (+${euros(barOption(t, { ...x, barOption: true }).price)})</label>` : '') : ''}
               ${r.fee || x.barOption ? html`<b class="num" style="font-size:1.4rem">${euros(due)}</b>${r.feeMode === 'player' || x.barOption ? html`<span class="hint">${r.fee ? `${r.feeMode === 'player' ? `${n || players.length} joueurs × ${euros(r.fee)}` : 'inscription'}` : ''}${x.barOption ? ` + carte buvette ${euros(barOption(t, x).price)} (${barOption(t, x).points} pts)` : ''}</span>` : ''}
               ${paid ? html`<span class="pill ok">${x.payment === 'free' ? 'Offert' : `Payé${x.payMethod ? ` (${({ cash: 'espèces', card: 'carte', lydia: 'Lydia', check: 'chèque', online: 'en ligne' })[x.payMethod] || x.payMethod})` : ''}`}</span>${x.extraPaid ? html`<span class="pill ok">+ ${euros(x.extraPaid)} de don</span>` : ''}<button class="linkbtn small" data-act="unpay">Annuler</button>`
               : html`<button class="btn sm" data-act="pay" data-m="cash">Espèces</button><button class="btn sm" data-act="pay" data-m="card">Carte</button><button class="btn ghost sm" data-act="pay" data-m="lydia">Lydia</button>`}` : ''}
               ${paid && x.barOption && !x.barCard ? html`<button class="btn sm" data-act="team-card-issue">Créer sa carte buvette</button>` : ''}</div>
-            <div class="row">${!x.checkedIn ? html`<button class="btn ${x.late ? 'ball' : 'ghost'} sm" data-act="late">${x.late ? 'Décaler encore ses matchs' : 'En retard : décaler ses matchs'}</button>` : ''}${!enough && n ? html`<button class="linkbtn small" data-act="force-in">Valider quand même</button>` : ''}</div>
+            <div class="row">${!x.checkedIn ? html`<button class="btn ${x.late ? 'ball' : 'ghost'} sm" data-act="late">${x.late ? 'Décaler encore ses matchs' : 'En retard : décaler ses matchs'}</button>` : ''}</div>
           </div></div>`;
       })}${!teams.length ? html`<p class="muted">Aucune équipe${q ? ' ne correspond' : ''}.</p>` : ''}</div>`;
   },
@@ -250,8 +288,9 @@ const PANELS = {
       <div class="stack">
         ${sugg ? html`<div class="card stack"><div><h2 style="margin:0">Formules conseillées</h2><p class="hint" style="margin:0">${t.teams.filter((x) => x.status === 'confirmed').length} équipes, ${t.courts.filter((c) => c.active !== false).length} terrains, de ${t.startTime} à ${t.endTime}, rotations de ${t.slotMinutes} min. Les plus riches en matchs d’abord.</p></div>
           <div class="tscroll"><table class="t"><thead><tr><th>Formule</th><th class="n">Matchs</th><th class="n">Min. par équipe</th><th class="n">Fin</th><th></th></tr></thead><tbody>
-          ${sugg.map((x) => html`<tr class="${x.fits ? '' : 'muted'}"><td><b>${x.label}</b></td><td class="n">${x.matches}</td><td class="n">${x.minPerTeam}</td><td class="n"><b style="${x.fits ? '' : 'color:var(--loss)'}">${x.end}</b>${x.fits ? '' : ' (trop tard)'}</td>
-            <td><button class="btn ${x.fits ? '' : 'ghost'} sm" data-act="use-format" data-f="${JSON.stringify(x.format)}">Choisir</button></td></tr>`)}</tbody></table></div></div>` : ''}
+          ${sugg.some((x) => fmtKey(x.format) === fmtKey(t.format)) ? '' : html`<tr class="chosen-row"><td><b>Formule actuelle : ${FORMAT_LABEL(t)}</b></td><td class="n">${t.matches.filter((m) => m.status !== 'bye').length}</td><td class="n">—</td><td class="n"><b>${lastEnd(t)}</b></td><td><span class="pill chosen">✓ Choisie</span></td></tr>`}
+          ${sugg.map((x) => { const on = fmtKey(x.format) === fmtKey(t.format); return html`<tr class="${on ? 'chosen-row' : x.fits ? '' : 'muted'}"><td><b>${x.label}</b></td><td class="n">${x.matches}</td><td class="n">${x.minPerTeam}</td><td class="n"><b style="${x.fits ? '' : 'color:var(--loss)'}">${x.end}</b>${x.fits ? '' : ' (trop tard)'}</td>
+            <td>${on ? html`<span class="pill chosen">✓ Choisie</span>` : html`<button class="btn ${x.fits ? '' : 'ghost'} sm" data-act="use-format" data-f="${JSON.stringify(x.format)}">Choisir</button>`}</td></tr>`; })}</tbody></table></div></div>` : ''}
         <form class="card stack" onsubmit="return false"><h2>Format</h2>${sectionFormat(t)}${compare && !sugg ? compareTable(compare, t) : ''}</form>
         <form class="card stack" onsubmit="return false"><h2>Règles et horaires</h2>${sectionRules(t)}</form>
         <div class="card stack">
@@ -271,13 +310,14 @@ const PANELS = {
     const slots = [...new Set(t.matches.filter((m) => m.slot != null).map((m) => m.slot))].sort((a, b) => a - b);
     const filt = (m) => f === 'all' || m.status === f || (f === 'validate' && m.status === 'done' && t.scoreValidation && !m.validated);
     return html`${rotationPanel(ctx)}<div class="row between" style="margin-top:1rem"><h2 style="margin:0">Matchs</h2>
+      <div class="row"><a class="btn ghost sm" href="#/print/${t.id}/feuilles" target="_blank">🖨 Toutes les feuilles papier</a><a class="btn ghost sm" href="#/print/${t.id}/feuilles?vierge=1" target="_blank">Feuilles vierges</a></div></div><div class="row between">
       <div class="filters">${Object.entries({ all: 'Tous', live: 'En cours', scheduled: 'À venir', done: 'Terminés', ...(t.scoreValidation ? { validate: 'À valider' } : {}) }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div></div>
       ${slots.map((s) => {
         const ms = t.matches.filter((m) => m.slot === s && m.status !== 'bye' && filt(m)).sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId));
         if (!ms.length) return '';
         const brk = (t.breaks || []).find((b) => b.afterSlot === s - 1);
         return html`${brk ? html`<div class="pill warn" style="margin-top:1rem">☕ ${brk.label || 'Pause'} · ${brk.minutes} min</div>` : ''}
-          <div class="slot-h"><h3>Rotation ${s + 1}</h3><span class="muted">${slotTime(t, s)}</span>${restingTeams(ctx, s)}</div>
+          <div class="slot-h"><h3>Rotation ${s + 1}</h3><span class="slot-time">${slotTime(t, s)}</span>${restingTeams(ctx, s)}<span class="spacer"></span><a class="btn ghost sm" href="#/print/${t.id}/feuilles?rot=${s}" target="_blank">🖨 Feuilles papier</a></div>
           ${ms.map((m) => matchRow(ctx, m, { action: adminActions }))}`;
       })}`;
   },
@@ -347,8 +387,11 @@ ${connexionCard(t)}
           </div>
           <label class="f">Couleur de l’affiche<input type="color" data-path="theme" value="${t.theme || '#0B6E2E'}" style="width:60px;height:40px;padding:0;border:0"></label>
         </form>
-        <div class="card stack"><h3>Partenaires</h3><p class="hint" style="margin:0">Leurs noms défilent sur le grand écran et apparaissent sur la page de promotion.</p>
-          ${(t.sponsors || []).map((b, i) => html`<div class="row"><input type="text" data-path="sponsors.${i}.name" value="${b.name}" placeholder="Nom" style="flex:1"><input type="url" data-path="sponsors.${i}.url" value="${b.url || ''}" placeholder="Site (facultatif)" style="flex:1"><button class="btn danger sm" data-act="rm-sponsor" data-i="${i}">✕</button></div>`)}
+        <div class="card stack"><h3>Partenaires</h3><p class="hint" style="margin:0">Leurs logos défilent sur le grand écran et apparaissent sur la page de promotion et le portail des joueurs.</p>
+          ${(t.sponsors || []).map((b, i) => html`<div class="card flat row" style="gap:.6rem">
+            <label class="sponsor-logo" title="Choisir le logo">${b.logo ? html`<img src="${b.logo}" alt="">` : html`<span>+ Logo</span>`}<input type="file" accept="image/*" data-act="sponsor-logo" data-i="${i}" hidden></label>
+            <div class="stack" style="flex:1;gap:.4rem;min-width:180px"><input type="text" data-path="sponsors.${i}.name" value="${b.name}" placeholder="Nom du partenaire"><input type="url" data-path="sponsors.${i}.url" value="${b.url || ''}" placeholder="Site (facultatif)"></div>
+            <div class="stack" style="gap:.3rem">${b.logo ? html`<button class="btn ghost sm" data-act="rm-logo" data-i="${i}">Retirer le logo</button>` : ''}<button class="btn danger sm" data-act="rm-sponsor" data-i="${i}">Supprimer</button></div></div>`)}
           <div><button class="btn ghost sm" data-act="add-sponsor">Ajouter un partenaire</button></div></div>
       </div>
       <aside class="stack">
@@ -419,6 +462,7 @@ function rotationPanel(ctx) {
       ${timed && timed.timer.running ? html`<button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="rot-pause" data-slot="${slot}">Pause</button>` : ''}
       ${timed && !timed.timer.running ? html`<button class="btn ball" data-act="rot-resume" data-slot="${slot}">Reprendre</button>` : ''}
       <a class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" href="#/admin/${t.id}/matchs?f=live">Scores</a>
+      ${timed || ready.some((m) => scoringFor(t, m).mode === 'time') ? soundButton('tvsound') : ''}
     </div></div>`;
 }
 
@@ -529,6 +573,11 @@ function stats(ctx) {
 async function onChange(ctx, e) {
   const el = e.target;
   const { t } = ctx;
+  if (['mode', 'dur', 'preset'].includes(el.dataset.act)) {
+    await save(ctx, (d) => { applySportRule(d, el); }, 'Règle de jeu enregistrée');
+    if (hasResults(t)) toast('Les matchs déjà joués gardent leur score ; regénérez le planning si les durées changent.');
+    return ctx.rerender();
+  }
   if (el.dataset.path) {
     let regen = false;
     await save(ctx, (d) => { regen = applyField(d, el); });
@@ -548,6 +597,11 @@ async function onChange(ctx, e) {
     await save(ctx, (d) => { const x = d.teams.find((y) => y.id === id); x[f] = v; if (f === 'status' && v === 'confirmed' && x.payment === 'free' && d.registration.fee) x.payment = 'unpaid'; if (f === 'payment' && (v === 'paid' || v === 'onsite')) issueTeamCard(d, x, v === 'paid' ? 'online' : x.payMethod || 'cash'); });
     if (store.mode === 'local') ctx.rerender();
     return;
+  }
+  if (el.dataset.act === 'sponsor-logo' && el.files?.[0]) {
+    try { const url = await imageToDataUrl(el.files[0]); await save(ctx, (d) => { d.sponsors[+el.dataset.i].logo = url; }, 'Logo ajouté'); }
+    catch (err) { toast(err.message, 'err'); }
+    return ctx.rerender();
   }
   if (el.dataset.playerField) {
     const id = el.closest('[data-player]').dataset.player;
@@ -601,6 +655,7 @@ async function onSubmit(ctx, e) {
 }
 
 async function onClick(ctx, e) {
+  if (await onSoundClick(e)) return;
   const b = e.target.closest('[data-act]');
   if (!b || b.tagName === 'INPUT') return;
   const { t } = ctx;
@@ -618,7 +673,7 @@ async function onClick(ctx, e) {
       if (card) await showCard(t, card, `Carte buvette de ${x.name}`);
       return rr();
     }
-    case 'present': case 'add-player': case 'pay': case 'unpay': case 'late': case 'force-in': {
+    case 'present': case 'add-player': case 'pay': case 'unpay': case 'late': case 'force-in': case 'arrive': {
       const x = t.teams.find((y) => y.id === tid);
       if (act === 'add-player') {
         const r = await modal({ title: `Ajouter un joueur à ${x.name}`, body: html`<label class="f">Prénom et nom<input type="text" name="p" required maxlength="60"></label>`, ok: 'Ajouter et pointer' });
@@ -648,9 +703,20 @@ async function onClick(ctx, e) {
         if (act === 'present') { const p = b.dataset.p; y.present = (y.present || []).includes(p) ? y.present.filter((z) => z !== p) : [...(y.present || []), p]; }
         if (act === 'unpay') { y.payment = 'unpaid'; y.extraPaid = 0; delete y.payMethod; }
         if (act === 'force-in') y.forceIn = true;
+        if (act === 'arrive') { y.forceIn = !y.checkedIn; if (!y.forceIn) y.present = []; }
+        // arrivée pointée d'un geste, ou automatiquement quand assez de joueurs sont pointés
         y.checkedIn = !!y.forceIn || (y.present || []).length >= (d.registration.minPlayers || 1);
         if (y.checkedIn) y.late = false;
       });
+      const after = await store.get(t.id);
+      const conf = (after?.teams || []).filter((z) => z.status === 'confirmed');
+      if (act === 'arrive' || act === 'present') {
+        if (conf.length && conf.every((z) => z.checkedIn)) {
+          toast(`✓ Les ${conf.length} équipes sont arrivées : place au jeu !`, 'ok');
+          location.hash = `#/admin/${t.id}/${after.matches.length ? 'apercu' : 'planning'}`;
+          return;
+        }
+      }
       return rr();
     }
     case 'rot-start': case 'rot-pause': case 'rot-resume': {
@@ -695,6 +761,7 @@ async function onClick(ctx, e) {
     case 'rm-break': await save(ctx, (d) => { d.breaks.splice(+b.dataset.i, 1); }); rr(); break;
     case 'add-sponsor': await save(ctx, (d) => { (d.sponsors ??= []).push({ name: '', url: '' }); }); rr(); break;
     case 'rm-sponsor': await save(ctx, (d) => { d.sponsors.splice(+b.dataset.i, 1); }); rr(); break;
+    case 'rm-logo': await save(ctx, (d) => { delete d.sponsors[+b.dataset.i].logo; }); rr(); break;
     case 'pick-formula': await save(ctx, (d) => { d.format = { type: 'roundrobin', legs: +b.dataset.legs, finalsTop: +b.dataset.top, thirdPlace: true }; }); rr(); break;
     case 'read-all': await save(ctx, (d) => { (d.messages || []).forEach((m) => { m.read = true; }); }); rr(); break;
     case 'new-vpin': await save(ctx, (d) => { d.volunteerPin = pin4(); }, 'Nouveau code bénévole'); rr(); break;

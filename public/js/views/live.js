@@ -1,7 +1,8 @@
 import { store } from '../store.js';
-import { html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
+import { activeSponsors, html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
 import { slotTime, finalPodium, currentSlot, scoringFor } from '../engine.js';
-import { courtTile, startTimers, podiumView } from './components.js';
+import { courtTile, startTimers, podiumView, watchHorn, soundButton, onSoundClick } from './components.js';
+import { unlock, soundWanted } from '../sound.js';
 import { charityOf } from './bar.js';
 import { tournamentRules, appSteps, hasStarted } from '../rules.js';
 
@@ -27,7 +28,7 @@ export async function view(ctx) {
     html: html`<div class="tvwrap">
       <header class="tvhead"><span style="width:6vh;display:block">${logo}</span><h1>${t.name}</h1>
         ${ch ? html`<div style="min-width:26vw"><div style="font-size:1.8vh;opacity:.75">${t.charity.label}${ch.goal ? ` · objectif ${euros(ch.goal)}` : ''}${t.charity.pointPledge ? ` · ${ch.points} points = ${euros(ch.pledge)}` : ''}</div><div class="num" style="font-size:4.4vh;color:var(--ball)">${euros(ch.total)}</div>${ch.goal ? html`<div class="places"><i style="width:${ch.pct}%"></i></div>` : ''}</div>` : ''}
-        ${rotClock(t)}<span class="clock" data-clock></span></header>
+        ${rotClock(t)}<span class="clock" data-clock></span>${soundButton('tvsound')}</header>
       <div class="tvmain" style="${only ? 'grid-template-columns:1fr' : ''}">
         <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true, qr: c.token || t.openScoring ? `${store.baseUrl()}#/court/${t.id}/${c.id}${c.token ? `?k=${c.token}` : ''}` : '' }))}</section>
         ${only ? '' : html`<section class="tvside fade-in" aria-live="polite"><h2>${p.title}</h2><div style="flex:1;min-height:0;overflow:hidden">${p.body}</div>
@@ -36,19 +37,29 @@ export async function view(ctx) {
       <footer class="tvticker">${annFresh ? html`<b>📣</b><span>${ann.text}</span>`
         : last.length ? html`<b>Derniers résultats</b>${last.map((m) => { const s = sides(t, m, ctx.resolved); return html`<span>${s.nameA} <b class="num">${scoreText(t, m).main}</b> ${s.nameB}</span>`; })}`
         : html`<span>Bienvenue ! Les scores s’affichent ici en direct.</span>`}
-        ${(t.sponsors || []).filter((s) => s.name).length ? html`<span class="spacer"></span><span style="opacity:.7">Merci à ${t.sponsors.filter((s) => s.name).map((s) => s.name).join(' · ')}</span>` : ''}</footer>
+        ${activeSponsors(t).length ? html`<span class="spacer"></span><span class="tvsponsors"><span style="opacity:.7">Merci à</span>${activeSponsors(t).map((s) => (s.logo ? html`<img src="${s.logo}" alt="${s.name}">` : html`<b>${s.name}</b>`))}</span>` : ''}</footer>
     </div>`,
     mount(root) {
       const stopTimers = startTimers(root);
+      const stopHorn = watchHorn(t);
+      if (soundWanted()) unlock(); // déjà autorisé sur cet écran : on réarme si le navigateur le permet
+      root.addEventListener('click', (e) => onSoundClick(e));
       const clock = () => { const el = $('[data-clock]', root); if (el) el.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); };
       clock();
+      // Une rotation à venir qui ne tient pas en entier est masquée plutôt que coupée
+      requestAnimationFrame(() => {
+        const box = $('.upblock', root)?.parentElement;
+        if (!box) return;
+        const lim = box.getBoundingClientRect().bottom;
+        box.querySelectorAll('.upblock').forEach((b, i) => { if (i && b.getBoundingClientRect().bottom > lim + 1) b.style.display = 'none'; });
+      });
       const h = setInterval(clock, 10000);
       clearInterval(rotTimer);
       rotTimer = setInterval(() => { panelIdx++; ctx.rerender(); }, 12000);
       // Sans serveur (mode autonome), on relit régulièrement le stockage local
       const poll = store.mode === 'local' ? setInterval(() => ctx.rerender(), 5000) : null;
-      this.cleanup = () => { stopTimers(); clearInterval(h); clearInterval(poll); };
-      root.addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+      this.cleanup = () => { stopTimers(); stopHorn(); clearInterval(h); clearInterval(poll); };
+      root.addEventListener('dblclick', () => { unlock(); document.documentElement.requestFullscreen?.().catch(() => {}); });
     },
   };
 }
@@ -79,6 +90,13 @@ function welcome(ctx, portal) {
     mount(root) {
       const clock = () => { const el = $('[data-clock]', root); if (el) el.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); };
       clock();
+      // Une rotation à venir qui ne tient pas en entier est masquée plutôt que coupée
+      requestAnimationFrame(() => {
+        const box = $('.upblock', root)?.parentElement;
+        if (!box) return;
+        const lim = box.getBoundingClientRect().bottom;
+        box.querySelectorAll('.upblock').forEach((b, i) => { if (i && b.getBoundingClientRect().bottom > lim + 1) b.style.display = 'none'; });
+      });
       const h = setInterval(clock, 10000);
       const poll = store.mode === 'local' ? setInterval(() => ctx.rerender(), 5000) : null;
       this.cleanup = () => { clearInterval(h); clearInterval(poll); };
@@ -102,7 +120,14 @@ function buildPanels(ctx) {
   if (podium.length) out.push({ title: 'Podium', body: html`<div style="display:grid;gap:2vh;margin-top:2vh">${podium.map((id, i) => html`<div style="display:flex;gap:1.5vw;align-items:center"><span style="font-size:7vh">${['🥇', '🥈', '🥉'][i]}</span><span class="num" style="font-size:5vh">${teamName(t, id)}</span></div>`)}</div>` });
 
   const up = t.matches.filter((m) => m.status === 'scheduled').sort((a, b) => a.slot - b.slot).slice(0, 8);
-  if (up.length) out.push({ title: 'Prochains matchs', body: html`${up.map((m) => { const s = sides(t, m, resolved); const c = t.courts.find((x) => x.id === m.courtId); return html`<div class="up"><span class="num">${matchTime(t, m)}</span><span class="dot" style="--c:${c?.color};width:1.4vh;height:1.4vh"></span><span>${s.nameA} – ${s.nameB} <span style="opacity:.6">· ${c?.name} ${sportOf(c).icon}${m.referee ? ` · arb. ${teamName(t, m.referee)}` : ''}</span></span></div>`; })}` });
+  if (up.length) {
+    const slots = [...new Set(up.map((m) => m.slot))].slice(0, 2);
+    out.push({ title: 'Prochains matchs', body: html`${slots.map((sl) => html`<div class="upblock"><div class="uprot"><b>Rotation ${sl + 1}</b><span class="num">${slotTime(t, sl)}</span></div>
+      ${t.matches.filter((m) => m.slot === sl && m.status === 'scheduled').sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId)).map((m) => {
+        const s = sides(t, m, resolved); const c = t.courts.find((x) => x.id === m.courtId);
+        return html`<div class="up2"><span class="ccourt" style="--c:${c?.color}">${c?.name.replace(/^Terrain\s*/i, 'T')} ${sportOf(c).icon}</span><span><b>${s.nameA}</b> – <b>${s.nameB}</b>${s.referee ? html`<br><small style="opacity:.65">Arbitre : ${teamName(t, s.referee)}</small>` : ''}</span></div>`;
+      })}</div>`)}` });
+  }
 
   for (const [L, rows] of Object.entries(standings)) {
     if (!rows.some((r) => r.played)) continue;

@@ -60,7 +60,7 @@ export function tournamentRules(t) {
   out.push({ icon: '🕒', title: 'Le déroulé', text: `${rot}${when}.${brk ? ` ${brk[0].toUpperCase()}${brk.slice(1)}.` : ''}${(t.scoring.mode === 'time' || courts.some((c) => c.scoring?.mode === 'time')) && t.timerControl !== 'players' ? ' Le chrono est lancé par l’organisation pour tous les terrains en même temps.' : ''}` });
   const rr = RANKING_RULES[t.scoring.ranking] || RANKING_RULES.win3;
   out.push({ icon: '📊', title: 'Le classement', text: `${rr.label}. En cas d’égalité : nombre de victoires, puis ${t.scoring.mode === 'time' ? 'différence de buts' : 'ratio de sets et de points'}, puis confrontation directe.` });
-  out.push({ icon: '🙋', title: 'L’arbitrage', text: t.referees === 'teams' ? 'L’équipe au repos arbitre un match : elle est prévenue sur son téléphone et tient le score.' : 'Les deux équipes s’arbitrent elles-mêmes et tiennent le score ensemble.' });
+  out.push({ icon: '🙋', title: 'L’arbitrage', text: t.referees === 'teams' ? 'L’équipe au repos arbitre (sur tous les terrains si elle est seule au repos) : elle est prévenue sur son téléphone et tient le score.' : 'Les deux équipes s’arbitrent elles-mêmes et tiennent le score ensemble.' });
   if (t.pointsCards !== false && (t.buvette || []).length) {
     const packs = (t.cardPacks?.length ? t.cardPacks : []).map((p) => `${eur(p.price)} = ${p.points} pts`).join(', ');
     out.push({ icon: '🥪', title: 'La buvette', text: `Payez en espèces, par carte ou avec la carte à points${packs ? ` (${packs})` : ''} : pas de monnaie, et votre solde est sur votre téléphone.` });
