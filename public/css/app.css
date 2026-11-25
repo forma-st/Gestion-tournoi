@@ -431,3 +431,13 @@ table.t td:has(> .pill) { white-space: nowrap; }
 .rules-list p { margin: .1rem 0 0; color: var(--ink-2); }
 .steps-list { margin: 0; padding-left: 1.3rem; display: grid; gap: .6rem; }
 .steps-list b { display: block; }
+
+/* assistant de création */
+.chip { display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .8rem; border: 1.5px solid var(--line); border-radius: 99px; background: #fff; font-weight: 600; font-size: .92rem; cursor: pointer; min-height: 38px; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip:hover { border-color: var(--ink-2); }
+.chip.on, .chip:has(input:checked) { background: var(--court); border-color: var(--court); color: #fff; }
+.chip:has(input:focus-visible) { outline: 3px solid var(--ball); outline-offset: 2px; }
+.helpbox { background: #EEF7EF; box-shadow: none; border: 1.5px solid #CFE6D3; }
+.helpbox p { margin: 0; font-size: .95rem; }
+button.tile { font: inherit; color: inherit; width: 100%; }
