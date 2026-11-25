@@ -95,6 +95,8 @@ export const store = {
     const headers = { 'content-type': 'application/json', ...(opt.headers || {}) };
     const pin = id && this.pin(id);
     if (pin) headers['x-admin-pin'] = pin;
+    const key = LS.get('rot:adminKey', '');
+    if (key && !headers['x-admin-key']) headers['x-admin-key'] = key; // la clé générale ouvre tous les tournois
     const r = await fetch(`api/${path}`, { ...opt, headers, cache: 'no-store' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(j.error || `Erreur ${r.status}`), { status: r.status, body: j });

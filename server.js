@@ -75,9 +75,12 @@ function publicView(t) {
   };
 }
 
+/** Organisateur du tournoi : son code à 4 chiffres, ou la clé organisateur générale (ADMIN_KEY) qui ouvre tous les tournois. */
+const isMasterKey = (v) => !!ADMIN_KEY && !!v && String(v).length <= 80 && safeEq(String(v).trim().toUpperCase(), ADMIN_KEY.toUpperCase());
 const isAdmin = (req, t) => {
   const pin = req.headers['x-admin-pin'];
-  return !!pin && pin.length <= 64 && safeEq(String(pin), String(t.adminPin));
+  if (pin && pin.length <= 64 && safeEq(String(pin), String(t.adminPin))) return true;
+  return isMasterKey(req.headers['x-admin-key']) || isMasterKey(pin);
 };
 function safeEq(a, b) {
   const x = Buffer.from(a), y = Buffer.from(b);

@@ -13,7 +13,7 @@ export async function homeView(ctx) {
   const isArch = (t) => !!t.archived;
   const active = list.filter((t) => !isArch(t));
   const archived = list.filter(isArch).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const canEdit = (t) => store.mode === 'local' || !!store.pin(t.id);
+  const canEdit = (t) => store.mode === 'local' || !!store.pin(t.id) || !!store.adminKey();
   const card = (t) => html`<div class="tcard" style="--c:${t.theme || '#0B6E2E'};${isArch(t) ? 'opacity:.85' : ''}" data-tid="${t.id}" data-name="${t.name}">
     <a href="#/admin/${t.id}" style="text-decoration:none;color:inherit;display:grid;gap:.5rem">
       <h3>${t.name}</h3>
