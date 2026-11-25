@@ -53,6 +53,7 @@ export function applyField(t, el) {
   if (path === 'scoring.preset') { t.scoring = { ...SCORING_PRESETS[v], preset: v }; return false; }
   if (path === 'finalsScoring.preset') { t.finalsScoring = v ? { ...SCORING_PRESETS[v], preset: v } : null; return false; }
   setPath(t, path, v);
+  if (path === 'registration.barCard.enabled' && v) { t.registration.barCard.price ??= 10; t.registration.barCard.points ??= 12; t.registration.barCard.per ??= 'team'; }
   return /^(format|courts\.\d+\.active|startTime|slotMinutes|referees)/.test(path);
 }
 
@@ -206,6 +207,14 @@ export function sectionRegistration(t) {
       </div>
       ${r.paymentProvider !== 'onsite' ? html`<label class="f">Lien de paiement<input type="url" data-path="registration.paymentUrl" value="${r.paymentUrl}" placeholder="https://www.helloasso.com/associations/…"></label>` : ''}
       <p class="hint" style="margin:0">${prov.note}</p>
+    </div>
+    <div class="card flat stack">
+      <label class="check"><input type="checkbox" data-path="registration.barCard.enabled" ${r.barCard?.enabled ? raw('checked') : ''}> <span><b>Carte buvette en option</b> à l’inscription <span class="hint">L’équipe la choisit en s’inscrivant (ou à l’accueil) ; elle est créditée dès le paiement et l’argent va à la buvette.</span></span></label>
+      ${r.barCard?.enabled ? html`<div class="grid3">
+        <label class="f">Prix (€)<input type="number" min="1" step="1" data-type="num" data-path="registration.barCard.price" value="${r.barCard.price ?? 10}"></label>
+        <label class="f">Points crédités<input type="number" min="1" step="1" data-type="num" data-path="registration.barCard.points" value="${r.barCard.points ?? 12}"></label>
+        <label class="f">Par ${sel('registration.barCard.per', r.barCard.per || 'team', { team: 'équipe (une carte partagée)', player: 'joueur (cumulés sur la carte de l’équipe)' })}</label>
+      </div>` : ''}
     </div>
   </div>`;
 }

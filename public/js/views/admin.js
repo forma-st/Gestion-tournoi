@@ -7,8 +7,8 @@ import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionR
 import { compareTable } from './home.js';
 import { matchRow, courtTile, rankingsView, startTimers, STATUS } from './components.js';
 import { posterCanvas, drawPoster } from './promo.js';
-import { adminBuvette, adminCagnotte, barActions } from './bar.js';
-import { feesSummary, teamDue, charityTotals } from '../money.js';
+import { adminBuvette, adminCagnotte, barActions, showCard } from './bar.js';
+import { feesSummary, teamDue, teamFee, barOption, issueTeamCard, findCard, charityTotals } from '../money.js';
 import { LEVELS, teamOptions, balanceTeams, applyTeams, suggestFormats, newPlayer } from '../club.js';
 
 let drawSeed = 0;
@@ -196,9 +196,11 @@ const PANELS = {
             <div class="row">${x.checkedIn ? html`<span class="pill ok">Équipe complète</span>` : n ? html`<span class="pill warn">${n}/${r.minPlayers} joueurs</span>` : html`<span class="pill">Pas encore arrivée</span>`}${x.late ? html`<span class="pill warn">En retard</span>` : ''}</div></div>
           <div class="row" style="margin:.7rem 0">${players.map((p) => html`<button class="btn ${present.includes(p) ? '' : 'ghost'} sm" data-act="present" data-p="${p}" aria-pressed="${present.includes(p)}">${present.includes(p) ? '✓ ' : ''}${p}</button>`)}<button class="btn ghost sm" data-act="add-player">+ Joueur</button></div>
           <div class="row between">
-            <div class="row">${r.fee ? html`<b class="num" style="font-size:1.4rem">${euros(due)}</b>${r.feeMode === 'player' ? html`<span class="hint">${n || players.length} joueurs × ${euros(r.fee)}</span>` : ''}
+            <div class="row">${r.barCard?.enabled ? (x.barCard ? html`<button class="btn ghost sm" data-act="team-card">💳 Carte ${x.barCard} · ${findCard(t, x.barCard)?.balance ?? '?'} pts</button>` : !paid ? html`<label class="check small"><input type="checkbox" data-act="bar-opt" ${x.barOption ? raw('checked') : ''}> Carte buvette (+${euros(barOption(t, { ...x, barOption: true }).price)})</label>` : '') : ''}
+              ${r.fee || x.barOption ? html`<b class="num" style="font-size:1.4rem">${euros(due)}</b>${r.feeMode === 'player' || x.barOption ? html`<span class="hint">${r.fee ? `${r.feeMode === 'player' ? `${n || players.length} joueurs × ${euros(r.fee)}` : 'inscription'}` : ''}${x.barOption ? ` + carte buvette ${euros(barOption(t, x).price)} (${barOption(t, x).points} pts)` : ''}</span>` : ''}
               ${paid ? html`<span class="pill ok">${x.payment === 'free' ? 'Offert' : `Payé${x.payMethod ? ` (${({ cash: 'espèces', card: 'carte', lydia: 'Lydia', check: 'chèque', online: 'en ligne' })[x.payMethod] || x.payMethod})` : ''}`}</span>${x.extraPaid ? html`<span class="pill ok">+ ${euros(x.extraPaid)} de don</span>` : ''}<button class="linkbtn small" data-act="unpay">Annuler</button>`
-              : html`<button class="btn sm" data-act="pay" data-m="cash">Espèces</button><button class="btn sm" data-act="pay" data-m="card">Carte</button><button class="btn ghost sm" data-act="pay" data-m="lydia">Lydia</button>`}` : ''}</div>
+              : html`<button class="btn sm" data-act="pay" data-m="cash">Espèces</button><button class="btn sm" data-act="pay" data-m="card">Carte</button><button class="btn ghost sm" data-act="pay" data-m="lydia">Lydia</button>`}` : ''}
+              ${paid && x.barOption && !x.barCard ? html`<button class="btn sm" data-act="team-card-issue">Créer sa carte buvette</button>` : ''}</div>
             <div class="row">${!x.checkedIn ? html`<button class="btn ${x.late ? 'ball' : 'ghost'} sm" data-act="late">${x.late ? 'Décaler encore ses matchs' : 'En retard : décaler ses matchs'}</button>` : ''}${!enough && n ? html`<button class="linkbtn small" data-act="force-in">Valider quand même</button>` : ''}</div>
           </div></div>`;
       })}${!teams.length ? html`<p class="muted">Aucune équipe${q ? ' ne correspond' : ''}.</p>` : ''}</div>`;
@@ -396,7 +398,7 @@ function rotationPanel(ctx) {
   const dur = timed ? scoringFor(t, timed).durationMin : 0;
   const over = timed && elapsedOf(timed.timer) >= dur * 60000;
   const done = ms.filter((m) => m.status === 'done').length;
-  return html`<div class="card row between" style="margin-top:1rem;background:var(--ink);color:#fff;gap:1rem">
+  return html`<div class="card row between dark" style="margin-top:1rem;background:var(--ink);color:#fff;gap:1rem">
     <div><div style="opacity:.75" class="small">Rotation ${slot + 1} · prévue à ${slotTime(t, slot)} · ${ms.length} matchs${done ? ` · ${done} terminés` : ''}</div>
       ${timed ? html`<div class="num" style="font-size:3rem;line-height:1;color:${over ? 'var(--ball)' : '#fff'}" data-timer="${JSON.stringify(timed.timer)}" data-dur="${dur}">⏱</div>`
       : live.length ? html`<div class="num" style="font-size:1.8rem">En cours</div>` : html`<div class="num" style="font-size:1.8rem">Prête à démarrer</div>`}</div>
@@ -522,11 +524,16 @@ async function onChange(ctx, e) {
     if (store.mode === 'local') ctx.rerender();
     return;
   }
+  if (el.dataset.act === 'bar-opt') {
+    const id = el.closest('[data-team]').dataset.team;
+    await save(ctx, (d) => { d.teams.find((y) => y.id === id).barOption = el.checked; });
+    return ctx.rerender();
+  }
   if (el.dataset.teamField) {
     const id = el.closest('[data-team]').dataset.team;
     const f = el.dataset.teamField;
     const v = el.type === 'checkbox' ? el.checked : f === 'level' ? +el.value : el.value;
-    await save(ctx, (d) => { const x = d.teams.find((y) => y.id === id); x[f] = v; if (f === 'status' && v === 'confirmed' && x.payment === 'free' && d.registration.fee) x.payment = 'unpaid'; });
+    await save(ctx, (d) => { const x = d.teams.find((y) => y.id === id); x[f] = v; if (f === 'status' && v === 'confirmed' && x.payment === 'free' && d.registration.fee) x.payment = 'unpaid'; if (f === 'payment' && (v === 'paid' || v === 'onsite')) issueTeamCard(d, x, v === 'paid' ? 'online' : x.payMethod || 'cash'); });
     if (store.mode === 'local') ctx.rerender();
     return;
   }
@@ -592,6 +599,13 @@ async function onClick(ctx, e) {
 
   if (await barActions(ctx, act, b, (fn, msg) => save(ctx, fn, msg).then(rr))) return;
   switch (act) {
+    case 'team-card': case 'team-card-issue': {
+      const x = t.teams.find((y) => y.id === tid);
+      let card = x.barCard ? findCard(t, x.barCard) : null;
+      if (act === 'team-card-issue') await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); const c = issueTeamCard(d, y, y.payMethod === 'paid' ? 'online' : y.payMethod || 'online'); if (c) card = { ...c }; });
+      if (card) await showCard(t, card, `Carte buvette de ${x.name}`);
+      return rr();
+    }
     case 'present': case 'add-player': case 'pay': case 'unpay': case 'late': case 'force-in': {
       const x = t.teams.find((y) => y.id === tid);
       if (act === 'add-player') {
@@ -602,10 +616,13 @@ async function onClick(ctx, e) {
       }
       if (act === 'pay') {
         const due = teamDue(t, x);
-        const r = await modal({ title: `Encaisser ${x.name}`, body: html`<p class="num" style="font-size:2.6rem;text-align:center;margin:0">${euros(due)}</p>${b.dataset.m === 'card' ? html`<p class="hint" style="text-align:center;margin:0">Tapez ce montant sur le TPE, validez ici une fois accepté.</p>` : ''}
+        const opt = barOption(t, x);
+        const r = await modal({ title: `Encaisser ${x.name}`, body: html`<p class="num" style="font-size:2.6rem;text-align:center;margin:0">${euros(due)}</p>${opt.points ? html`<p class="hint" style="text-align:center;margin:0">dont carte buvette ${euros(opt.price)} : elle sera créditée de ${opt.points} points</p>` : ''}${b.dataset.m === 'card' ? html`<p class="hint" style="text-align:center;margin:0">Tapez ce montant sur le TPE, validez ici une fois accepté.</p>` : ''}
           <label class="f">Don en plus (facultatif, €)<input type="number" name="extra" min="0" step="1" value=""></label>`, ok: 'Paiement reçu' });
         if (!r) return;
-        await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); y.payment = 'onsite'; y.payMethod = b.dataset.m; y.extraPaid = +r.extra || 0; y.paidAt = new Date().toISOString(); }, 'Paiement enregistré');
+        let card = null;
+        await save(ctx, (d) => { const y = d.teams.find((z) => z.id === tid); y.payment = 'onsite'; y.payMethod = b.dataset.m; y.extraPaid = +r.extra || 0; y.paidAt = new Date().toISOString(); const c = issueTeamCard(d, y, b.dataset.m); if (c) card = { ...c }; }, 'Paiement enregistré');
+        if (card) await showCard(t, card, `Carte buvette de ${x.name}`);
         return rr();
       }
       if (act === 'late') {

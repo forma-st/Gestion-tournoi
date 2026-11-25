@@ -350,13 +350,14 @@ async function api(req, res, url) {
       players: (Array.isArray(b.players) ? b.players : []).map((p) => str(p, 60)).filter(Boolean).slice(0, 20),
       comment: str(b.comment, 300),
       status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed',
-      payment: (r.fee || 0) > 0 ? 'unpaid' : 'free',
+      payment: (r.fee || 0) > 0 || (r.barCard?.enabled && b.barOption) ? 'unpaid' : 'free',
+      barOption: !!(t.registration?.barCard?.enabled && b.barOption),
       checkedIn: false, source: 'online', level: Math.min(3, Math.max(1, +b.level || 2)), pin: String(1000 + crypto.randomInt(9000)), createdAt: new Date().toISOString(),
       ref: `${t.id.slice(0, 3).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
     };
     t.teams.push(team);
     await save(t);
-    return send(res, 201, { ok: true, team: { id: team.id, name: team.name, status: team.status, ref: team.ref, payment: team.payment, pin: team.pin, players: team.players } });
+    return send(res, 201, { ok: true, team: { id: team.id, name: team.name, status: team.status, ref: team.ref, payment: team.payment, pin: team.pin, players: team.players, barOption: team.barOption } });
   }
 
   return send(res, 404, { error: 'Introuvable' });

@@ -5,6 +5,7 @@ import { FORMATS, PROVIDERS } from './settings.js';
 import qrcode from '../../vendor/qrcode.mjs';
 import { charityCard, declareDonation, charityOf } from './bar.js';
 import { LEVELS } from '../club.js';
+import { teamDue, barOption } from '../money.js';
 
 const placesLeft = (t) => Math.max(0, (t.registration.maxTeams || 0) - t.teams.filter((x) => x.status === 'confirmed').length);
 
@@ -111,6 +112,7 @@ export async function registerView(ctx) {
         <label class="f">E-mail<input type="email" name="email" required autocomplete="email"></label>
         <label class="f">Niveau de l’équipe<select name="level"><option value="1">Confirmé (compétition)</option><option value="2" selected>Intermédiaire (loisir régulier)</option><option value="3">Débutant</option></select><span class="hint">Sert à équilibrer les poules.</span></label>
         <label class="f">Joueurs <span class="hint">De ${r.minPlayers} à ${r.maxPlayers}, un prénom et nom par ligne</span><textarea name="players" rows="${Math.max(4, r.minPlayers)}" required></textarea></label>
+        ${r.barCard?.enabled ? html`<label class="check card flat" style="padding:.8rem"><input type="checkbox" name="barOption"> <span><b>Ajouter la carte buvette</b> : ${euros(r.barCard.price)}${r.barCard.per === 'player' ? ' par joueur' : ''} = ${r.barCard.points} points${r.barCard.per === 'player' ? ' par joueur' : ''} <span class="hint">Payée avec l’inscription, utilisable toute la soirée à la buvette, sans monnaie.</span></span></label>` : ''}
         <label class="f">Un mot pour l’organisation <span class="hint">Facultatif</span><textarea name="comment" rows="2" maxlength="300"></textarea></label>
         <label class="check"><input type="checkbox" name="consent" required> <span class="small">J’accepte que ces informations servent uniquement à l’organisation du tournoi. Elles sont supprimées après l’événement.</span></label>
         <button class="btn ball block" style="min-height:52px">Inscrire mon équipe</button>
@@ -135,7 +137,7 @@ export async function registerView(ctx) {
         const btn = f.querySelector('button');
         btn.disabled = true;
         try {
-          const res = await store.register(t.id, { name: f.name.value, captain: f.captain.value, phone: f.phone.value, email: f.email.value, level: f.level.value, players, comment: f.comment.value });
+          const res = await store.register(t.id, { name: f.name.value, captain: f.captain.value, phone: f.phone.value, email: f.email.value, level: f.level.value, players, comment: f.comment.value, barOption: !!f.barOption?.checked });
           $('#reg', root).innerHTML = confirmation(t, res.team, f.email.value);
           $('#reg', root).addEventListener('click', (ev) => { if (ev.target.closest('[data-act=ics]')) download(`${t.id}.ics`, ics(t), 'text/calendar'); });
         } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
@@ -151,15 +153,16 @@ function confirmation(t, team, email) {
   if (pay && r.paymentProvider === 'stripe') {
     try { const u = new URL(pay); u.searchParams.set('client_reference_id', team.ref || team.id); if (email) u.searchParams.set('prefilled_email', email); pay = u.href; } catch { /* lien invalide */ }
   }
-  const needPay = r.fee > 0 && team.status !== 'waitlist';
-  const due = r.feeMode === 'player' ? r.fee * Math.max(team.players?.length || 0, r.minPlayers || 1) : r.fee;
+  const needPay = (r.fee > 0 || team.barOption) && team.status !== 'waitlist';
+  const due = teamDue(t, { ...team, barOption: !!team.barOption });
+  const opt = barOption(t, { ...team, barOption: !!team.barOption });
   return toStr(html`<div class="card stack" style="text-align:center">
     <h2>${status[0]}</h2><p>${status[1]}</p>
     <div class="grid2" style="text-align:left">
       <div class="card flat"><span class="muted small">Référence</span><div class="num" style="font-size:1.8rem">${team.ref || '—'}</div></div>
       ${team.pin ? html`<div class="card flat"><span class="muted small">Code PIN de l’équipe</span><div class="num" style="font-size:1.8rem">${team.pin}</div><span class="hint">Pour saisir vos scores le jour J. Gardez-le !</span></div>` : ''}
     </div>
-    ${needPay ? html`<div class="card flat stack"><b>Paiement : ${euros(due)}</b>${r.feeMode === 'player' ? html`<span class="hint">${euros(r.fee)} par joueur. Vous pouvez donner plus : tout va à la cause 💛</span>` : ''}
+    ${needPay ? html`<div class="card flat stack"><b>Paiement : ${euros(due)}</b>${r.feeMode === 'player' ? html`<span class="hint">${euros(r.fee)} par joueur.</span>` : ''}${opt.points ? html`<span class="hint">Dont carte buvette ${euros(opt.price)} : ${opt.points} points, remise à l’accueil dès le paiement.</span>` : ''}
       ${pay && r.paymentProvider !== 'onsite' ? html`<a class="btn ball block" href="${pay}" target="_blank" rel="noopener">Payer avec ${PROVIDERS[r.paymentProvider]?.label || 'le lien'}</a><span class="hint">Indiquez la référence ${team.ref || ''} si elle est demandée.</span>` : html`<span>Le règlement se fait sur place, à l’accueil, le jour du tournoi.</span>`}</div>` : ''}
     <div class="row" style="justify-content:center"><button class="btn ghost" data-act="ics">Ajouter à mon agenda</button><a class="btn ghost" href="#/p/${t.id}">Retour à la page du tournoi</a></div>
   </div>`);
@@ -187,8 +190,8 @@ export async function drawPoster(c, t, format, base) {
   g.setLineDash([18, 14]); g.beginPath(); g.moveTo(70, H * 0.77 - 90); g.lineTo(W - 70, H * 0.77 - 90); g.stroke();
   g.restore();
   // ballon
-  g.fillStyle = '#FBD600'; g.beginPath(); g.arc(W - 150, 170, 90, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = '#0F2A17'; g.lineWidth = 7; g.lineCap = 'round';
+  g.fillStyle = '#FFFFFF'; g.beginPath(); g.arc(W - 150, 170, 90, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#0B6E2E'; g.lineWidth = 7; g.lineCap = 'round';
   g.beginPath(); g.arc(W - 150, 170, 90, -1.2, 0.6); g.stroke();
   g.beginPath(); g.moveTo(W - 235, 140); g.quadraticCurveTo(W - 150, 120, W - 80, 210); g.stroke();
 
@@ -220,7 +223,7 @@ export async function drawPoster(c, t, format, base) {
   g.fillText(t.address || '', 100, by + 145);
   const r = t.registration;
   g.font = '700 46px "Barlow Condensed", sans-serif';
-  g.fillStyle = '#FBD600';
+  g.fillStyle = '#A6E3B4';
   g.fillText(`${r.maxTeams} ÉQUIPES · ${r.fee ? euros(r.fee).toUpperCase() + (r.feeMode === 'player' ? ' / JOUEUR' : ' / ÉQUIPE') : 'GRATUIT'}`, 100, by + 215);
   if (t.charity?.enabled) { g.fillText(`AU PROFIT DU ${String(t.charity.label || '').toUpperCase()}`, 100, by + 270); }
   g.fillStyle = '#FFFFFF'; g.font = '600 32px Barlow, sans-serif';

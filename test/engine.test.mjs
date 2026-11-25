@@ -275,3 +275,25 @@ test('buvette : carte 10 € = 12 points, paiement en points, solde insuffisant 
   M.issueCard(t, { code: blank.code, price: 5, points: 6, method: 'card' });
   assert.equal(M.findCard(t, blank.code).balance, 6);
 });
+
+test('carte buvette en option à l’inscription : ajoutée au montant dû, créditée au paiement, comptée à la buvette', () => {
+  const t = buildDemo('multisport');
+  t.sales = []; t.cards = [];
+  const team = t.teams.find((x) => x.barOption);
+  const other = t.teams.find((x) => !x.barOption);
+  // 5 joueurs × 5 € + carte 10 €
+  assert.equal(M.teamFee(t, team), 25);
+  assert.equal(M.teamDue(t, team), 35);
+  assert.equal(M.teamDue(t, other), 25);
+  assert.equal(M.issueTeamCard(t, other), null); // pas d'option, pas de carte
+  const c = M.issueTeamCard(t, team, 'cash');
+  assert.equal(c.balance, 12);
+  assert.equal(team.barCard, c.code);
+  assert.equal(M.issueTeamCard(t, team), null); // une seule fois
+  team.payment = 'onsite';
+  assert.equal(M.feesSummary(t).paid, 25); // l'option n'est pas comptée dans les inscriptions…
+  assert.equal(M.buvetteStats(t).revenue, 10); // … mais à la buvette
+  t.registration.barCard.per = 'player';
+  team.barCard = null;
+  assert.equal(M.barOption(t, team).points, 60); // 5 joueurs × 12 points
+});

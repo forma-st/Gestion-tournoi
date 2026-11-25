@@ -291,7 +291,7 @@ export const store = {
       const team = {
         id: Math.random().toString(36).slice(2, 8), pin: String(1000 + Math.floor(Math.random() * 9000)),
         name: data.name.trim(), captain: data.captain, email: data.email, phone: data.phone, players: data.players || [], level: +data.level || 2, comment: data.comment,
-        status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed', payment: r.fee > 0 ? 'unpaid' : 'free',
+        status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed', payment: r.fee > 0 || (r.barCard?.enabled && data.barOption) ? 'unpaid' : 'free', barOption: !!(r.barCard?.enabled && data.barOption),
         checkedIn: false, source: 'online', createdAt: new Date().toISOString(), ref: `${t.id.slice(0, 3).toUpperCase()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`,
       };
       t.teams.push(team);

@@ -14,7 +14,7 @@ export function charityCard(t, { donate = true } = {}) {
   const c = t.charity;
   if (!c?.enabled) return '';
   const x = charityOf(t);
-  return html`<div class="card stack" style="background:var(--ink);color:#fff">
+  return html`<div class="card stack dark" style="background:var(--ink);color:#fff">
     <h3 style="color:var(--ball);margin:0">${c.label || 'Cagnotte solidaire'}</h3>
     <div class="num" style="font-size:2.6rem;line-height:1">${euros(x.total)} ${x.goal ? html`<span style="font-size:1.1rem;opacity:.7">sur ${euros(x.goal)}</span>` : ''}</div>
     ${x.goal ? html`<div class="places"><i style="width:${x.pct}%"></i></div>` : ''}
@@ -123,13 +123,18 @@ async function sellCard(ctx, pin, presetCode = '') {
   try {
     const c = await store.card(t.id, 'issue', { code: r.code.replace(/\D/g, '') || undefined, price: pack.price, points: pack.points, method: r.method, name: r.name, sid: `top-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` }, pin);
     rememberCard(t.id, c);
-    await modal({ title: `Carte ${c.code}${c.name ? ` · ${c.name}` : ''}`, ok: 'Terminé', cancel: '',
-      body: html`<p class="num" style="text-align:center;font-size:3rem;margin:0;line-height:1">${c.balance} points</p>
-        <div class="qrbox"><div class="qr" style="width:220px">${qrSvg(cardUrl(t, c))}</div>
-        <p style="margin:0">Le joueur <b>scanne ce QR</b> : sa carte s’ouvre sur son téléphone, avec son solde à jour.</p>
-        <p class="small muted" style="margin:0">Sans téléphone : notez le code <b class="num" style="font-size:1.3rem;color:var(--ink)">${c.code}</b> sur sa main ou sur une carte papier.</p></div>` });
+    await showCard(t, c);
     ctx.rerender();
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/** Affiche une carte à points : solde, QR à scanner par le joueur, code à noter. */
+export function showCard(t, c, title) {
+  return modal({ title: title || `Carte ${c.code}${c.name ? ` · ${c.name}` : ''}`, ok: 'Terminé', cancel: '',
+    body: html`<p class="num" style="text-align:center;font-size:3rem;margin:0;line-height:1">${c.balance} points</p>
+      <div class="qrbox"><div class="qr" style="width:220px">${qrSvg(cardUrl(t, c))}</div>
+      <p style="margin:0">Le capitaine (ou le joueur) <b>scanne ce QR</b> : la carte s’ouvre sur son téléphone, avec le solde à jour.</p>
+      <p class="small muted" style="margin:0">Sans téléphone : notez le code <b class="num" style="font-size:1.3rem;color:var(--ink)">${c.code}</b> sur une carte papier.</p></div>` });
 }
 
 export async function caisseView(ctx) {
@@ -251,7 +256,7 @@ export async function carteView(ctx) {
   return {
     title: `Carte buvette ${code}`,
     html: html`<main class="sheet" style="max-width:460px">
-      ${err ? html`<div class="empty">${err}</div>` : html`<div class="card stack" style="background:var(--ink);color:#fff;text-align:center">
+      ${err ? html`<div class="empty">${err}</div>` : html`<div class="card stack dark" style="background:var(--ink);color:#fff;text-align:center">
         <span class="small" style="opacity:.8">${t.name} · carte buvette${c.name ? ` de ${c.name}` : ''}</span>
         <div class="num" style="font-size:5rem;line-height:1;color:var(--ball)">${c.balance}</div><b>points</b>
         <div class="qr" style="width:210px;margin:0 auto;background:#fff;padding:8px;border-radius:12px">${qrSvg(`${store.baseUrl()}#/carte/${t.id}/${code}?k=${key}`)}</div>

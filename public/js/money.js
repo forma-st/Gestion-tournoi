@@ -10,20 +10,41 @@ export const PAY_METHODS = {
   free: 'Offert (bénévoles)',
 };
 
-/** Montant dû par une équipe (au forfait ou par joueur, avec un minimum). */
-export function teamDue(t, team) {
+const headcount = (t, team) => Math.max(team.present?.length || team.players?.length || 0, +t.registration?.minPlayers || 1);
+
+/** Droit d'inscription seul (au forfait ou par joueur, avec un minimum). */
+export function teamFee(t, team) {
   const r = t.registration || {};
   const fee = +r.fee || 0;
   if (!fee) return 0;
-  if (r.feeMode === 'player') return fee * Math.max(team.present?.length || team.players?.length || 0, +r.minPlayers || 1);
-  return fee;
+  return r.feeMode === 'player' ? fee * headcount(t, team) : fee;
+}
+
+/** Carte buvette en option à l'inscription : prix et points pour cette équipe (0 si non choisie). */
+export function barOption(t, team) {
+  const o = t.registration?.barCard;
+  if (!o?.enabled || !team?.barOption) return { price: 0, points: 0 };
+  const n = o.per === 'player' ? headcount(t, team) : 1;
+  return { price: (+o.price || 0) * n, points: (+o.points || 0) * n };
+}
+
+/** Montant total dû par une équipe : inscription + carte buvette si elle l'a choisie. */
+export function teamDue(t, team) { return teamFee(t, team) + barOption(t, team).price; }
+
+/** Crée la carte buvette d'une équipe qui l'a prise en option (une seule fois). L'argent va à la buvette. */
+export function issueTeamCard(t, team, method = 'cash') {
+  const o = barOption(t, team);
+  if (!o.points || team.barCard) return null;
+  const c = issueCard(t, { price: o.price, points: o.points, method: method || 'cash', name: team.name, sid: `inc-${team.id}` });
+  team.barCard = c.code;
+  return c;
 }
 
 export function feesSummary(t) {
   const conf = t.teams.filter((x) => x.status === 'confirmed');
   let due = 0, paid = 0, extra = 0;
   for (const x of conf) {
-    const d = teamDue(t, x);
+    const d = teamFee(t, x); // l'option buvette est comptée à la buvette, pas dans les inscriptions
     due += d;
     if (x.payment === 'paid' || x.payment === 'onsite') { paid += d; extra += +x.extraPaid || 0; }
   }
