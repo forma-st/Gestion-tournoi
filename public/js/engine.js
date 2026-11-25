@@ -782,7 +782,7 @@ export function newTournament(over = {}) {
     finalsScoring: null,
     registration: { open: true, maxTeams: 16, minPlayers: 4, maxPlayers: 8, fee: 0, paymentUrl: '', paymentProvider: 'helloasso', deadline: '', requireValidation: false },
     social: { facebook: '', instagram: '', website: '' },
-    charity: { enabled: false, label: '', goal: 0, raised: 0, donateUrl: '' },
+    charity: { enabled: false, label: '', goal: 0, raised: 0, payUrl: '', payPhone: '', payee: '' },
     teams: [],
     matches: [],
     pools: {},

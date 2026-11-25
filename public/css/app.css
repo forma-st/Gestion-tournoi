@@ -65,7 +65,7 @@ p { margin: 0 0 1em; }
 .btn.danger { background: transparent; color: var(--loss); border-color: #F0C4C4; }
 .btn.danger:hover { background: var(--loss-bg); }
 .btn.sm { min-height: 34px; padding: .3em .85em; font-size: .9rem; }
-.btn.block { width: 100%; }
+.btn.block { width: 100%; white-space: normal; text-align: center; }
 .btn.icon { padding: 0; width: 44px; }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--court); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 
@@ -407,3 +407,27 @@ table.t td:has(> .pill) { white-space: nowrap; }
 .cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85mm, 1fr)); gap: 6mm; }
 .paycard { border: 1.5px dashed #555; border-radius: 4mm; padding: 4mm 5mm; display: grid; grid-template-columns: 1fr 30mm; gap: 3mm; break-inside: avoid; min-height: 52mm; align-items: center; }
 .paycard .qr { width: 30mm; }
+
+/* écran d'accueil du grand écran */
+.welcome { display: grid; grid-template-columns: 1.15fr 1fr; gap: 2vw; min-height: 0; }
+.welcome .tvside { overflow: hidden; }
+.wrules { display: grid; gap: 1.2vh; }
+.wrules > div { display: grid; grid-template-columns: 5vh 1fr; gap: 1vw; align-items: start; }
+.wrules .wic { font-size: 3.6vh; line-height: 1; }
+.wrules b { font-family: var(--display); font-size: 2.8vh; }
+.wrules p { margin: .2vh 0 0; font-size: 2vh; line-height: 1.3; opacity: .92; }
+.wqr { display: flex; gap: 1.5vw; align-items: center; background: #fff; color: var(--ink); border-radius: 1.6vh; padding: 1vh 1.4vw; font-size: 2.4vh; }
+.wqr .qr { width: 23vh; flex: none; }
+.wqr b { font-family: var(--display); font-size: 3.2vh; }
+.wsteps { counter-reset: st; list-style: none; margin: 1.4vh 0 0; padding: 0; display: grid; gap: .8vh; }
+.wsteps li { counter-increment: st; display: grid; grid-template-columns: 4.6vh 1fr; gap: 0 1vw; font-size: 1.9vh; line-height: 1.25; }
+.wsteps li::before { content: counter(st); grid-row: span 2; width: 4.4vh; height: 4.4vh; border-radius: 50%; background: var(--ball); color: var(--ink); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 2.6vh; }
+.wsteps b { font-family: var(--display); font-size: 2.6vh; }
+@media (max-aspect-ratio: 1/1) { .welcome { grid-template-columns: 1fr; } }
+/* même contenu dans le portail et à l'impression */
+.rules-list { display: grid; gap: .9rem; }
+.rules-list > div { display: grid; grid-template-columns: 2rem 1fr; gap: .6rem; }
+.rules-list .wic { font-size: 1.4rem; }
+.rules-list p { margin: .1rem 0 0; color: var(--ink-2); }
+.steps-list { margin: 0; padding-left: 1.3rem; display: grid; gap: .6rem; }
+.steps-list b { display: block; }

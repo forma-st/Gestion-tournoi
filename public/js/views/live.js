@@ -3,6 +3,7 @@ import { html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText
 import { slotTime, finalPodium, currentSlot, scoringFor } from '../engine.js';
 import { courtTile, startTimers, podiumView } from './components.js';
 import { charityOf } from './bar.js';
+import { tournamentRules, appSteps, hasStarted } from '../rules.js';
 
 let panelIdx = 0;
 let rotTimer = null;
@@ -18,6 +19,8 @@ export async function view(ctx) {
   const ann = (t.announcements || []).at(-1);
   const annFresh = ann && Date.now() - new Date(ann.at).getTime() < 15 * 60000;
   const portal = `${store.baseUrl()}#/t/${t.id}`;
+  // Avant le premier match (ou ?accueil=1) : écran d'accueil avec les règles et le mode d'emploi
+  if ((ctx.route.query.accueil === '1' || !hasStarted(t)) && ctx.route.query.accueil !== '0' && !only) return welcome(ctx, portal);
   return {
     title: `${t.name} · grand écran`,
     bodyClass: 'tv',
@@ -28,7 +31,7 @@ export async function view(ctx) {
       <div class="tvmain" style="${only ? 'grid-template-columns:1fr' : ''}">
         <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true, qr: c.token || t.openScoring ? `${store.baseUrl()}#/court/${t.id}/${c.id}${c.token ? `?k=${c.token}` : ''}` : '' }))}</section>
         ${only ? '' : html`<section class="tvside fade-in" aria-live="polite"><h2>${p.title}</h2><div style="flex:1;min-height:0;overflow:hidden">${p.body}</div>
-          <div class="row" style="gap:1vw;margin-top:1vh;align-items:center"><div style="width:11vh;background:#fff;padding:.5vh;border-radius:.8vh">${qrSvg(portal)}</div><div style="font-size:1.9vh;opacity:.85">Scannez pour suivre<br>vos matchs sur votre téléphone</div></div></section>`}
+          <div class="row" style="gap:1.2vw;margin-top:1.2vh;align-items:center;background:#fff;color:var(--ink);border-radius:1.2vh;padding:1vh 1vw"><div style="width:19vh;flex:none">${qrSvg(portal)}</div><div style="font-size:2.3vh;line-height:1.3"><b style="font-size:2.8vh;font-family:var(--display)">Vos matchs sur votre téléphone</b><br>Scannez, puis « Je suis une équipe »</div></div></section>`}
       </div>
       <footer class="tvticker">${annFresh ? html`<b>📣</b><span>${ann.text}</span>`
         : last.length ? html`<b>Derniers résultats</b>${last.map((m) => { const s = sides(t, m, ctx.resolved); return html`<span>${s.nameA} <b class="num">${scoreText(t, m).main}</b> ${s.nameB}</span>`; })}`
@@ -52,6 +55,37 @@ export async function view(ctx) {
 
 // Quitter l'écran TV arrête la rotation des panneaux
 addEventListener('hashchange', () => { if (!location.hash.includes('/live/')) clearInterval(rotTimer); });
+
+/** Écran d'accueil (avant le début) : règles du tournoi, mode d'emploi en 4 étapes, très grand QR du portail. */
+function welcome(ctx, portal) {
+  const { t } = ctx;
+  const rules = tournamentRules(t);
+  const steps = appSteps(t);
+  return {
+    title: `${t.name} · bienvenue`,
+    bodyClass: 'tv',
+    html: html`<div class="tvwrap" style="grid-template-rows:auto 1fr">
+      <header class="tvhead"><span style="width:6vh;display:block">${logo}</span><h1>Bienvenue au ${t.name}</h1>
+        <div style="text-align:right;font-size:2.2vh;opacity:.85">Premier match à<br><b class="num" style="font-size:4vh;color:var(--ball)">${t.startTime}</b></div><span class="clock" data-clock></span></header>
+      <div class="welcome">
+        <section class="tvside"><h2>Les règles du tournoi</h2>
+          <div class="wrules">${rules.filter((r) => r.title !== 'À savoir').map((r) => html`<div><span class="wic">${r.icon}</span><div><b>${r.title}</b><p>${r.text}</p></div></div>`)}</div></section>
+        <section class="tvside"><h2>Comment ça marche ?</h2>
+          <div class="wqr"><div class="qr">${qrSvg(portal)}</div><div><b>Scannez ce QR code</b><br>avec l’appareil photo de votre téléphone</div></div>
+          <ol class="wsteps">${steps.map((s) => html`<li><b>${s.title}</b><span>${s.text}</span></li>`)}</ol>
+          ${t.infos ? html`<div class="wrules" style="margin-top:1.6vh"><div><span class="wic">ℹ️</span><div><b>À savoir</b><p>${t.infos}</p></div></div></div>` : ''}</section>
+      </div>
+    </div>`,
+    mount(root) {
+      const clock = () => { const el = $('[data-clock]', root); if (el) el.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); };
+      clock();
+      const h = setInterval(clock, 10000);
+      const poll = store.mode === 'local' ? setInterval(() => ctx.rerender(), 5000) : null;
+      this.cleanup = () => { clearInterval(h); clearInterval(poll); };
+      root.addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+    },
+  };
+}
 
 function rotClock(t) {
   const slot = currentSlot(t);
@@ -86,8 +120,10 @@ function buildPanels(ctx) {
       ${ch.reached.length ? html`<p style="font-size:1.9vh;opacity:.8;margin:0 0 1vh">✔ ${ch.reached.map((m) => m.label).join(' · ')}</p>` : ''}
       ${t.charity.pointPledge ? html`<p style="font-size:2.1vh;margin:0 0 1vh">🏐 Chaque point = ${euros(t.charity.pointPledge)}${t.charity.pledgeSponsor ? ` (${t.charity.pledgeSponsor})` : ''} : ${ch.points} points, ${euros(ch.pledge)}</p>` : ''}
       <div class="tvdon">${ch.feed.slice(0, 5).map((d) => html`<div><span>💛 ${d.name}${d.message ? html` <i style="opacity:.7">« ${d.message} »</i>` : ''}</span><b>${euros(d.amount)}</b></div>`)}</div>
-      ${t.charity.donateUrl ? html`<div class="row" style="gap:1vw;margin-top:1.5vh;align-items:center"><div style="width:12vh;background:#fff;padding:.5vh;border-radius:.8vh">${qrSvg(t.charity.donateUrl)}</div><div style="font-size:2vh">Scannez pour donner</div></div>` : ''}` });
+      <div class="row" style="gap:1.2vw;margin-top:1.5vh;align-items:center;background:#fff;color:var(--ink);border-radius:1.2vh;padding:1vh 1vw"><div style="width:16vh;flex:none">${qrSvg(`${store.baseUrl()}#/don/${t.id}`)}</div><div style="font-size:2.2vh"><b style="font-family:var(--display);font-size:2.8vh">Scannez pour donner</b><br>Paiement au club, qui reverse au ${t.charity.label || 'profit de la cause'}</div></div>` });
   }
+  const steps = appSteps(t);
+  out.push({ title: 'Comment ça marche ?', body: html`<ol class="wsteps" style="font-size:2.1vh">${steps.map((s) => html`<li><b>${s.title}</b><span>${s.text}</span></li>`)}</ol>` });
   if (!out.length) out.push({ title: 'Bienvenue', body: html`<p style="font-size:2.4vh">Le tournoi commence à ${t.startTime}.</p>` });
   return out;
 }

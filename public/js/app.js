@@ -40,6 +40,7 @@ const VIEWS = {
   print: print.view,
   caisse: bar.caisseView,
   carte: bar.carteView,
+  don: bar.donView,
 };
 
 export function go(hash) { if (location.hash !== hash) location.hash = hash; else render(); }

@@ -2,6 +2,7 @@ import { store } from '../store.js';
 import { html, raw, fmtDate, sides, matchTime, teamName, sportOf, qrSvg, phaseLabel } from '../ui.js';
 import { scoringFor, slotTime } from '../engine.js';
 import { rankingsView } from './components.js';
+import { tournamentRules, appSteps } from '../rules.js';
 
 export async function view(ctx) {
   const { t } = ctx;
@@ -10,7 +11,7 @@ export async function view(ctx) {
   const admin = store.isAdmin(t);
   const bar = html`<div class="noprint row between" style="padding:16px;max-width:1000px;margin:0 auto"><a href="#/admin/${t.id}">← Retour</a><button class="btn" onclick="window.print()">Imprimer</button></div>`;
   let body;
-  if (!admin && kind !== 'classement' && kind !== 'planning') body = html`<p class="wrap">Réservé à l’organisation.</p>`;
+  if (!admin && !['classement', 'planning', 'regles'].includes(kind)) body = html`<p class="wrap">Réservé à l’organisation.</p>`;
   else if (kind === 'qr') {
     body = html`${t.courts.filter((c) => c.active !== false).map((c) => {
       const sp = sportOf(c);
@@ -37,6 +38,14 @@ export async function view(ctx) {
         <tbody><tr><td style="text-align:left">${s.nameA}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr><tr><td style="text-align:left">${s.nameB}</td>${Array.from({ length: n }, () => html`<td></td>`)}<td></td></tr></tbody></table></div>
         <div style="text-align:center;font-size:.75rem"><div class="qr">${qrSvg(`${base}#/match/${t.id}/${m.id}?k=${m.token}`)}</div>Saisir en ligne</div></div>`;
     })}</div>`;
+  } else if (kind === 'regles') {
+    body = html`<section class="poster page" style="--c:var(--court);align-content:start;text-align:left;justify-items:stretch;gap:1rem">
+      <h1 style="text-align:center;font-size:3rem;margin:0">${t.name}</h1>
+      <div class="grid2" style="align-items:start">
+        <div class="rules-list" style="font-size:1.05rem">${tournamentRules(t).map((r) => html`<div><span class="wic">${r.icon}</span><div><b>${r.title}</b><p>${r.text}</p></div></div>`)}</div>
+        <div class="stack"><div class="qr" style="width:260px;justify-self:center">${qrSvg(`${base}#/t/${t.id}`)}</div><b style="text-align:center;font-size:1.3rem">Vos matchs sur votre téléphone</b>
+          <ol class="steps-list" style="font-size:1.05rem">${appSteps(t).map((s) => html`<li><b>${s.title}</b>${s.text}</li>`)}</ol></div>
+      </div></section>`;
   } else if (kind === 'cartes') {
     const blank = (t.cards || []).filter((c) => !c.ops?.length);
     body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${blank.length} cartes vierges à découper</h2>

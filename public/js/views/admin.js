@@ -139,6 +139,8 @@ const PANELS = {
       <div class="card section"><h3>Liens utiles</h3><div class="row">
         <a class="btn ghost" href="#/t/${t.id}" target="_blank">Portail des joueurs</a>
         <a class="btn ghost" href="#/live/${t.id}" target="_blank">Grand écran</a>
+        <a class="btn ghost" href="#/live/${t.id}?accueil=1" target="_blank">Écran d’accueil (règles)</a>
+        <a class="btn ghost" href="#/print/${t.id}/regles" target="_blank">Affiche des règles</a>
         <a class="btn ghost" href="#/print/${t.id}/qr" target="_blank">Affiches QR des terrains</a>
         <a class="btn ghost" href="#/print/${t.id}/feuilles" target="_blank">Feuilles de match papier</a>
         <a class="btn ghost" href="#/p/${t.id}" target="_blank">Page de promotion</a>

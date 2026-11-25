@@ -87,7 +87,7 @@ export function sectionEssentials(t) {
         <label class="f">Objectif (€)<input type="number" min="0" data-type="num" data-path="charity.goal" value="${t.charity.goal}"></label>
         <label class="f">Déjà collecté (€)<input type="number" min="0" data-type="num" data-path="charity.raised" value="${t.charity.raised}"></label>
       </div>
-      <label class="f">Lien de don en ligne<input type="url" data-path="charity.donateUrl" value="${t.charity.donateUrl}" placeholder="https://…"></label>` : ''}
+      <label class="f">Lien de paiement du club pour les dons <span class="hint">HelloAsso, SumUp, Lydia… Le club collecte puis reverse.</span><input type="url" data-path="charity.payUrl" value="${t.charity.payUrl || ''}" placeholder="https://…"></label>` : ''}
     </div>
   </div>`;
 }
