@@ -70,13 +70,18 @@ function loginView(ctx) {
   return {
     title: t.name,
     html: html`${shell({ title: t.name })}<main class="wrap narrow"><form class="card stack" id="login" style="max-width:420px;margin:2rem auto">
-      <h2>Espace organisateur</h2><p>Saisissez le code organisateur de « ${t.name} ».</p>
-      <label class="f">Code organisateur<input type="password" name="pin" inputmode="numeric" autocomplete="current-password" required autofocus></label>
+      <h2>Espace organisateur</h2><p>Saisissez le code organisateur de « ${t.name} » (4 chiffres), ou votre <b>clé organisateur</b> générale (RVB-…), qui ouvre tous les tournois.</p>
+      <label class="f">Code ou clé organisateur<input type="password" name="pin" autocomplete="current-password" autocapitalize="characters" spellcheck="false" required autofocus></label>
       <button class="btn">Entrer</button><a href="#/t/${t.id}">Voir le portail public</a></form></main>`,
     mount(root) {
       $('#login', root).addEventListener('submit', async (e) => {
         e.preventDefault();
-        try { await store.login(t.id, e.target.pin.value.trim()); ctx.rerender(); } catch (err) { toast(err.message, 'err'); }
+        const v = e.target.pin.value.trim();
+        try {
+          if (/^\d{4,6}$/.test(v)) await store.login(t.id, v);
+          else { const err = await store.checkAdminKey(v); if (err) throw new Error(err === 'Clé organisateur incorrecte' ? 'Code ou clé incorrects' : err); store.setAdminKey(v); }
+          ctx.rerender();
+        } catch (err) { toast(err.message, 'err'); }
       });
     },
   };
@@ -130,6 +135,7 @@ const PANELS = {
       </div>
       ${(t.messages || []).length ? html`<div class="card section stack"><div class="row between"><h3 style="margin:0">Messages des équipes</h3><button class="btn ghost sm" data-act="read-all">Tout marquer comme lu</button></div>
         ${(t.messages || []).slice().reverse().slice(0, 20).map((m) => html`<div class="row" style="align-items:flex-start">${!m.read ? html`<span class="dot" style="--c:var(--loss);margin-top:7px"></span>` : ''}<div><b>${m.from}</b> <span class="muted small">${new Date(m.at).toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</span><br>${m.text}</div></div>`)}</div>` : ''}
+      <div class="card section row between" style="gap:.6rem"><span>Code organisateur de ce tournoi : <b class="num" style="font-size:1.3rem">${t.adminPin}</b></span><span class="hint">À donner à un co-organisateur pour ce tournoi seulement. Votre clé organisateur générale ouvre tous les tournois.</span></div>
       <div class="card section"><h3>Liens utiles</h3><div class="row">
         <a class="btn ghost" href="#/t/${t.id}" target="_blank">Portail des joueurs</a>
         <a class="btn ghost" href="#/live/${t.id}" target="_blank">Grand écran</a>
