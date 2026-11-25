@@ -365,7 +365,13 @@ async function serveStatic(req, res, url) {
   // Page promo partageable : /p/<id> → index.html avec balises Open Graph
   const promo = p.match(/^\/p\/([a-z0-9_-]+)\/?$/i);
   if (promo || p === '/' || !path.extname(p)) {
-    let html = await fsp.readFile(path.join(PUBLIC, 'index.html'), 'utf8');
+    let html;
+    try { html = await fsp.readFile(path.join(PUBLIC, 'index.html'), 'utf8'); }
+    catch (e) {
+      // Sur Vercel, la page est servie par le CDN : la fonction la récupère à la même adresse
+      if (!IS_VERCEL) throw e;
+      html = await (await fetch(`https://${req.headers['x-forwarded-host'] || req.headers.host}/index.html`)).text();
+    }
     if (promo) {
       const t = await load(promo[1]);
       if (t) {
@@ -396,6 +402,12 @@ async function serveStatic(req, res, url) {
 /** Point d'entrée commun : serveur Node (ordinateur) et fonction Vercel. */
 export async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  // Vercel peut transmettre l'adresse réécrite (/api/index?path=… ou ?id=…) : on retrouve l'adresse d'origine
+  if (url.pathname === '/api/index' || url.pathname === '/api/index.js') {
+    const p = url.searchParams.get('path'), id = url.searchParams.get('id');
+    url.searchParams.delete('path'); url.searchParams.delete('id');
+    url.pathname = p != null ? `/api/${p}` : id != null ? `/p/${id}` : '/api/';
+  }
   try {
     if (url.pathname.startsWith('/api/')) {
       for (let attempt = 0; ; attempt++) {
