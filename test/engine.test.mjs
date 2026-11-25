@@ -297,3 +297,12 @@ test('carte buvette en option à l’inscription : ajoutée au montant dû, cré
   team.barCard = null;
   assert.equal(M.barOption(t, team).points, 60); // 5 joueurs × 12 points
 });
+
+test('archivage : inscriptions fermées puis rétablies au désarchivage', () => {
+  const t = buildDemo('multisport');
+  assert.equal(t.registration.open, true);
+  E.setArchived(t, true);
+  assert.equal(t.archived, true); assert.equal(t.registration.open, false); assert.ok(t.archivedAt);
+  E.setArchived(t, false);
+  assert.equal(t.archived, false); assert.equal(t.registration.open, true); assert.equal(t.archivedAt, undefined);
+});

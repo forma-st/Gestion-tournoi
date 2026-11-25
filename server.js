@@ -52,7 +52,7 @@ async function listAll() {
   return (await storage.list()).map(summary).sort((x, y) => (x.date || '').localeCompare(y.date || ''));
 }
 
-const summary = (t) => ({ id: t.id, name: t.name, date: t.date, venue: t.venue, theme: t.theme, teams: t.teams.filter((x) => x.status === 'confirmed').length, maxTeams: t.registration?.maxTeams, courts: t.courts.length, format: t.format?.type, version: t.version, fee: t.registration?.fee || 0, open: !!t.registration?.open });
+const summary = (t) => ({ id: t.id, name: t.name, date: t.date, venue: t.venue, theme: t.theme, teams: t.teams.filter((x) => x.status === 'confirmed').length, maxTeams: t.registration?.maxTeams, courts: t.courts.length, format: t.format?.type, version: t.version, fee: t.registration?.fee || 0, open: !!t.registration?.open && !t.archived, archived: !!t.archived, archivedAt: t.archivedAt || null });
 
 /** Vue publique : sans code admin, jetons ni coordonnées. */
 function publicView(t) {
@@ -336,7 +336,7 @@ async function api(req, res, url) {
   if (action === 'register' && method === 'POST') {
     if (rateLimited(req, 'register', 10)) return send(res, 429, { error: 'Trop d’inscriptions depuis cet appareil, réessayez plus tard' });
     const r = t.registration || {};
-    if (!r.open) return send(res, 403, { error: 'Les inscriptions sont fermées' });
+    if (!r.open || t.archived) return send(res, 403, { error: 'Les inscriptions sont fermées' });
     if (r.deadline && new Date(r.deadline + 'T23:59:59') < new Date()) return send(res, 403, { error: 'La date limite d’inscription est passée' });
     const b = await readBody(req, 20_000);
     if (b.kind === 'player') {

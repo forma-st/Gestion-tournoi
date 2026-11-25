@@ -922,3 +922,11 @@ export function toggleRotation(t, slot, now, run) {
     if (!run && tm.running) m.timer = { running: false, elapsed: tm.elapsed + now - tm.since, since: 0 };
   }
 }
+
+/** Archive (ou désarchive) un tournoi : il reste consultable, les inscriptions sont fermées. */
+export function setArchived(t, on) {
+  t.archived = !!on;
+  if (on) { t.archivedAt = new Date().toISOString(); t.registration ??= {}; t.registration.wasOpen = !!t.registration.open; t.registration.open = false; }
+  else { delete t.archivedAt; if (t.registration?.wasOpen) t.registration.open = true; if (t.registration) delete t.registration.wasOpen; }
+  return t;
+}

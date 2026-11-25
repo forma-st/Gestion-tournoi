@@ -23,6 +23,7 @@ export async function view(ctx) {
           : html`<button class="btn ball sm" data-act="pick-team">Je suis une équipe</button><button class="btn ghost sm" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="pin">J’ai un code</button>`}
         </div>
       </header>
+      ${t.archived ? html`<p class="pill" style="margin:12px 16px 0">Tournoi terminé : résultats archivés</p>` : ''}
       <main class="pbody">${body}</main>
       <nav class="bottomnav" aria-label="Portail">${TABS.map(([k, l, ic]) => html`<a href="#/t/${t.id}/${k}" class="${k === tab ? 'on' : ''}" ${k === tab ? raw('aria-current="page"') : ''}>${icon(ic)}${l}</a>`)}</nav>
     </div>`,
