@@ -110,9 +110,18 @@ export function sectionCourts(t) {
   </div>`;
 }
 
+export function courtStepper(t) {
+  const n = t.courts.length;
+  return html`<div class="row" style="gap:.6rem"><span style="font-weight:600">Terrains</span>
+    <div class="numstep" role="group" aria-label="Nombre de terrains"><button type="button" class="btn ghost icon" data-act="courts-dec" ${n <= 1 ? raw('disabled') : ''} aria-label="Un terrain de moins">−</button><b class="num" aria-live="polite">${n}</b><button type="button" class="btn ghost icon" data-act="courts-inc" ${n >= 12 ? raw('disabled') : ''} aria-label="Un terrain de plus">+</button></div>
+    <span class="hint">${t.courts.map((c) => SPORTS[c.sport]?.icon || '').join(' ')} · le planning et les durées se recalculent</span></div>
+    ${(() => { const nT = t.teams.filter((x) => x.status === 'confirmed').length || t.registration.maxTeams; const max = Math.floor(nT / 2); return t.format.type === 'roundrobin' && n > max && nT >= 2 ? html`<p class="hint" style="margin:0;color:var(--loss)">Avec ${nT} équipes, ${max} matchs au plus en même temps : ${n - max > 1 ? `${n - max} terrains ne serviront pas` : 'un terrain ne servira pas'}.</p>` : ''; })()}`;
+}
+
 export function sectionFormat(t) {
   const f = t.format;
   return html`<div class="stack">
+    ${courtStepper(t)}
     <div class="tiles" role="radiogroup" aria-label="Format">
       ${Object.entries(FORMATS).map(([k, x]) => html`<label class="tile"><input type="radio" name="fmt" data-path="format.type" value="${k}" ${f.type === k ? raw('checked') : ''}><b>${x.icon} ${x.label}</b><small>${x.desc}</small></label>`)}
     </div>
@@ -160,6 +169,7 @@ export function sectionRules(t) {
       <label class="f">Arbitrage ${sel('referees', t.referees || 'none', { teams: 'Par les équipes au repos', none: 'Auto-arbitrage / bénévoles' })}</label>
       <label class="check" style="align-self:end"><input type="checkbox" data-path="scoreValidation" ${t.scoreValidation ? raw('checked') : ''}> Valider chaque score avant publication</label>
     </div>
+    ${t.scoring.mode === 'time' || t.courts.some((c) => c.scoring?.mode === 'time') ? html`<label class="f">Chrono des matchs au temps ${sel('timerControl', t.timerControl || 'organizer', { organizer: 'Géré par l’organisation (« Lancer la rotation » démarre tous les matchs)', players: 'Géré par les joueurs sur chaque feuille de match' })}</label>` : ''}
     <div class="card flat stack">
       <label class="check"><input type="checkbox" data-path="openScoring" ${t.openScoring ? raw('checked') : ''}> <span><b>Saisie libre des scores</b> : chaque joueur peut tenir le score de son match depuis son téléphone, sans code. <span class="hint">Idéal entre amis. Décochez pour un tournoi officiel : il faudra alors le QR du terrain, le PIN de l’équipe ou le code bénévole.</span></span></label>
     </div>

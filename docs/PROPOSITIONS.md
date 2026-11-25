@@ -61,6 +61,21 @@ Un module à part, ouvert sur le téléphone ou la tablette des bénévoles (QR 
 - **D’une année sur l’autre** : « Reprendre un autre tournoi » recopie la carte et les recettes, met les quantités consommées l’an dernier en colonne de comparaison et pré-remplit les achats (consommé + 10 %). « Liste d’achats » exporte le tout pour les courses.
 - Bilan : chiffre d’affaires, bénéfice, espèces attendues dans la caisse (fond + ventes en espèces), meilleures ventes, alertes de stock bas, export CSV.
 
+### Cartes à points : moins de monnaie, une file plus rapide
+
+- **Vente :** « Vendre / recharger une carte » → formule (10 € = 12 pts) → espèces, TPE ou Lydia. Deux supports :
+  - une **carte papier** préparée à l’avance (onglet Buvette → « Préparer 30 cartes papier ») ;
+  - une **carte virtuelle** : le joueur scanne le QR affiché et la retrouve sur son téléphone.
+- **Paiement :** produits → « Débiter » → scan du QR (caméra du téléphone ou de la tablette de la buvette, sur Android/Chrome) ou code à 4 chiffres. Les 6 dernières cartes servies sont proposées en un geste. Si le solde manque, la caisse propose aussitôt de recharger.
+- **Comptes :**
+  - l’argent est compté une seule fois, à la vente de la carte ;
+  - le stock et les matières premières suivent ce qui est consommé en points ;
+  - les points non utilisés à la fin de la soirée restent acquis (et vont à la cagnotte si la buvette y est reversée).
+- **Idées pour aller plus loin :**
+  - des points offerts aux bénévoles (carte « Offerte ») ;
+  - une carte incluse dans l’inscription des équipes ;
+  - un « happy hour » où la crêpe coûte 1 point de moins.
+
 ### Le TPE de la banque
 
 Un navigateur ne peut pas piloter directement un TPE. Deux pistes :

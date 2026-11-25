@@ -787,10 +787,14 @@ export function newTournament(over = {}) {
     pools: {},
     scoreValidation: false,
     openScoring: true, // tournoi convivial : les joueurs saisissent les scores sans code
+    timerControl: 'organizer', // les chronos des matchs au temps sont lancés par l'organisation
     referees: 'teams',
     volunteerPin: pin4(),
     announcements: [],
     buvette: [],
+    pointsCards: true,
+    cardPacks: [{ price: 5, points: 6 }, { price: 10, points: 12 }, { price: 20, points: 25 }],
+    cards: [],
     sponsors: [],
     infos: '',
     status: 'draft',
@@ -883,4 +887,37 @@ export function postponeTeam(t, teamId, { minDelay = 1 } = {}) {
   for (const m of t.matches) if (m.slot != null && m.slot > lastPhase) m.slot++;
   m1.slot = lastPhase + 1; m1.courtId = courts[0];
   return { moved: [m1.id], from, to: m1.slot, appended: true };
+}
+
+// ---------------------------------------------------------------- Rotations chronométrées (gérées par l'organisation)
+
+/** Rotation en cours : la première qui a encore un match à jouer. */
+export function currentSlot(t) {
+  const open = t.matches.filter((m) => m.slot != null && (m.status === 'scheduled' || m.status === 'live'));
+  return open.length ? Math.min(...open.map((m) => m.slot)) : null;
+}
+
+/** Lance tous les matchs prêts d'une rotation, chronos synchronisés sur le même départ. */
+export function startRotation(t, slot, now) {
+  const { resolved } = resolve(t);
+  const started = [];
+  for (const m of t.matches.filter((x) => x.slot === slot && x.status === 'scheduled')) {
+    const r = resolved[m.id];
+    if (!r.a || !r.b || r.a === BYE || r.b === BYE) continue;
+    m.status = 'live';
+    m.startedAt = new Date(now).toISOString();
+    if (!m.sets?.length) m.sets = [[0, 0]];
+    if (scoringFor(t, m).mode === 'time') m.timer = { running: true, elapsed: 0, since: now };
+    started.push(m.id);
+  }
+  return started;
+}
+
+/** Pause ou reprise des chronos d'une rotation. */
+export function toggleRotation(t, slot, now, run) {
+  for (const m of t.matches.filter((x) => x.slot === slot && x.status === 'live' && x.timer)) {
+    const tm = m.timer;
+    if (run && !tm.running) m.timer = { running: true, elapsed: tm.elapsed, since: now };
+    if (!run && tm.running) m.timer = { running: false, elapsed: tm.elapsed + now - tm.since, since: 0 };
+  }
 }

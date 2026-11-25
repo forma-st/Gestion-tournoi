@@ -3,6 +3,7 @@ import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, sides, matchTime, teamName, sportOf, phaseLabel, $, esc, contrastInk } from '../ui.js';
 import { scoringFor, setFinished, setTarget, matchResult, BYE } from '../engine.js';
 import { fmtClock } from './components.js';
+import { clock, elapsedOf } from '../time.js';
 
 /** #/court/:id/:courtId?k=jeton : le match en cours (ou le prochain) sur ce terrain. */
 export async function courtView(ctx) {
@@ -39,6 +40,7 @@ function sheetFor(ctx, m, { token, court }) {
   const s = sides(t, m, resolved);
   const sc = scoringFor(t, m);
   const role = store.role(t.id);
+  const canTimer = store.isAdmin(t) || t.timerControl === 'players';
   const allowed = !!token || t.openScoring === true || store.isAdmin(t) || role?.role === 'volunteer' || (role?.role === 'team' && [s.a, s.b, s.referee].includes(role.teamId));
   if (!local || local.id !== m.id) local = { id: m.id, sets: structuredClone(m.sets?.length ? m.sets : [[0, 0]]), swapped: false, dirty: false, timer: m.timer || null };
   if (!local.dirty) { local.sets = structuredClone(m.sets?.length ? m.sets : [[0, 0]]); local.timer = m.timer || null; }
@@ -69,7 +71,8 @@ function sheetFor(ctx, m, { token, court }) {
   else if (finishedSet) banner = html`<div class="next-step" style="justify-content:space-between"><b>Set gagné par ${pa > pb ? s.nameA : s.nameB}</b><button class="btn" data-act="next-set">Set suivant</button></div>`;
 
   const timerBlock = sc.mode === 'time' ? html`<div class="timer" data-dur="${sc.durationMin}"><div class="clock" data-clock>--:--</div>
-    ${allowed && m.status !== 'done' ? html`<div class="row" style="justify-content:center;margin-top:.5rem"><button class="btn ball sm" data-act="timer-toggle">${local.timer?.running ? 'Pause' : local.timer?.elapsed ? 'Reprendre' : 'Lancer le chrono'}</button>${local.timer ? html`<button class="btn ghost sm" style="color:#fff;border-color:rgba(255,255,255,.3)" data-act="timer-reset">Remettre à zéro</button>` : ''}</div>` : ''}</div>` : '';
+    ${!canTimer && m.status !== 'done' ? html`<p class="small" style="margin:.4rem 0 0;opacity:.8">${local.timer ? (local.timer.running ? 'Chrono lancé par l’organisation' : 'Chrono en pause') : 'Le chrono démarre quand l’organisation lance la rotation'}</p>` : ''}
+    ${canTimer && allowed && m.status !== 'done' ? html`<div class="row" style="justify-content:center;margin-top:.5rem"><button class="btn ball sm" data-act="timer-toggle">${local.timer?.running ? 'Pause' : local.timer?.elapsed ? 'Reprendre' : 'Lancer le chrono'}</button>${local.timer ? html`<button class="btn ghost sm" style="color:#fff;border-color:rgba(255,255,255,.3)" data-act="timer-reset">Remettre à zéro</button>` : ''}</div>` : ''}</div>` : '';
 
   return {
     title: `${s.nameA} – ${s.nameB}`,
@@ -81,7 +84,7 @@ function sheetFor(ctx, m, { token, court }) {
       ${sc.mode === 'points' && sets.length > 1 ? html`<div class="setstrip">${sets.map((x, i) => html`<span class="${i === cur ? 'cur' : ''}">${x[0]}-${x[1]}</span>`)}</div>` : ''}
       <div class="scorepad">${side(L, L === 'A' ? 'a' : 'b')}${side(R, R === 'A' ? 'a' : 'b')}</div>
       <div style="margin-top:12px">${banner}</div>
-      ${allowed && m.status === 'scheduled' ? html`<p class="hint" style="text-align:center;margin:.6rem 0 0">Touchez le score d’une équipe à chaque point marqué : le match démarre au premier point${sc.mode === 'time' ? ' (lancez aussi le chrono)' : ''}.</p>` : ''}
+      ${allowed && m.status === 'scheduled' ? html`<p class="hint" style="text-align:center;margin:.6rem 0 0">Touchez le score d’une équipe à chaque point marqué : le match démarre au premier point.</p>` : ''}
       ${allowed ? '' : html`<div class="card" style="margin-top:1rem;text-align:center"><p><b>Lecture seule.</b> Scannez le QR code du terrain ou connectez-vous avec le code de votre équipe pour saisir le score.</p><a class="btn" href="#/t/${t.id}">Se connecter au portail</a></div>`}
       <div class="row" style="justify-content:center;margin-top:1rem"><button class="linkbtn small" data-act="swap">Inverser les côtés</button><a class="small" href="#/t/${t.id}">Matchs et classements</a></div>
       ${allowed && m.status !== 'done' ? html`<div class="stickyact">
@@ -97,7 +100,7 @@ function sheetFor(ctx, m, { token, court }) {
         if (!el) return;
         const dur = sc.durationMin * 60000;
         const tm = local.timer;
-        const elapsed = tm ? tm.elapsed + (tm.running ? Date.now() - tm.since : 0) : 0;
+        const elapsed = elapsedOf(tm);
         const left = dur - elapsed;
         el.textContent = fmtClock(Math.max(0, left));
         el.parentElement.classList.toggle('over', left <= 0);
@@ -139,11 +142,11 @@ function sheetFor(ctx, m, { token, court }) {
           case 'swap': local.swapped = !local.swapped; local.dirty = !!pushTimer || local.busy; ctx.repaint(); break;
           case 'start':
             m.status = 'live';
-            if (sc.mode === 'time' && !local.timer) local.timer = { running: true, elapsed: 0, since: Date.now() };
+            if (sc.mode === 'time' && !local.timer && canTimer) local.timer = { running: true, elapsed: 0, since: clock.now() };
             await push({ status: 'live' }, true); ctx.rerender(); break;
           case 'timer-toggle': {
             const tm = local.timer || { running: false, elapsed: 0, since: 0 };
-            local.timer = tm.running ? { running: false, elapsed: tm.elapsed + Date.now() - tm.since, since: 0 } : { running: true, elapsed: tm.elapsed, since: Date.now() };
+            local.timer = tm.running ? { running: false, elapsed: tm.elapsed + clock.now() - tm.since, since: 0 } : { running: true, elapsed: tm.elapsed, since: clock.now() };
             if (m.status === 'scheduled') m.status = 'live';
             ctx.rerender(); push({}, true); break;
           }

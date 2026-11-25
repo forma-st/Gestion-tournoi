@@ -9,7 +9,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { charityTotals } from './public/js/money.js';
+import { charityTotals, issueCard, cardSale, findCard, blankCards, cancelSale } from './public/js/money.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -83,8 +83,9 @@ function publicView(t) {
     players: (t.players || []).map((p) => ({ id: p.id, name: p.name.split(' ')[0] })),
     buvettePin: undefined,
     sales: undefined,
+    cards: undefined,
     cashFund: undefined,
-    buvette: (t.buvette || []).map((p) => ({ id: p.id, name: p.name, price: p.price, category: p.category, active: p.active, soldOut: p.stock != null && p.stock !== '' && (+p.stock - (t.sales || []).filter((x) => !x.cancelled).reduce((a, x) => a + x.items.filter((i) => i.pid === p.id).reduce((b, i) => b + i.qty, 0), 0)) <= 0 })),
+    buvette: (t.buvette || []).map((p) => ({ id: p.id, name: p.name, price: p.price, points: p.points, category: p.category, active: p.active, soldOut: p.stock != null && p.stock !== '' && (+p.stock - (t.sales || []).filter((x) => !x.cancelled).reduce((a, x) => a + x.items.filter((i) => i.pid === p.id).reduce((b, i) => b + i.qty, 0), 0)) <= 0 })),
     charity: t.charity ? { ...t.charity, donations: (t.charity.donations || []).filter((d) => d.validated).map((d) => ({ id: d.id, name: d.anonymous ? 'Anonyme' : d.name, amount: d.amount, message: d.message, at: d.at, validated: true })) } : t.charity,
     _charity: t.charity?.enabled ? charityTotals(t) : null,
     teams: t.teams.map((x) => ({ id: x.id, name: x.name, status: x.status, color: x.color, players: x.players, captain: x.captain ? x.captain.split(' ')[0] : '', checkedIn: x.checkedIn, seed: x.seed })),
@@ -242,14 +243,44 @@ async function api(req, res, url) {
     return send(res, 201, { ok: true });
   }
 
+  // Carte à points : consultation par son détenteur (lien secret de la carte virtuelle)
+  if (action === 'card' && method === 'GET' && parts[3]) {
+    if (rateLimited(req, 'cardview', 120)) return send(res, 429, { error: 'Trop de requêtes' });
+    const c = findCard(t, parts[3]);
+    if (!c || !safeEq(String(url.searchParams.get('k') || ''), String(c.key))) return send(res, 404, { error: 'Carte introuvable' });
+    return send(res, 200, { code: c.code, name: c.name, balance: c.balance, ops: (c.ops || []).slice(-15).reverse() });
+  }
+
+  const barOk = (req2, b) => {
+    const pin = String(b.pin || '');
+    return isAdmin(req2, t) || (pin && ((t.volunteerPin && safeEq(pin, String(t.volunteerPin))) || (t.buvettePin && safeEq(pin, String(t.buvettePin)))));
+  };
+
+  // Carte à points côté buvette : vendre / recharger, consulter, créer des cartes à imprimer
+  if (action === 'card' && method === 'POST') {
+    const b = await readBody(req, 10000);
+    if (!barOk(req, b)) return send(res, 403, { error: 'Code buvette incorrect' });
+    try {
+      if (b.op === 'issue') { const c = issueCard(t, { code: b.code, price: b.price, points: b.points, method: b.method, name: str(b.name, 40), sid: str(b.sid, 40), at: b.at, by: str(b.by, 40) }); await save(t); return send(res, 201, { code: c.code, key: c.key, name: c.name, balance: c.balance }); }
+      if (b.op === 'lookup') { const c = findCard(t, b.code); return c ? send(res, 200, { code: c.code, key: c.key, name: c.name, balance: c.balance }) : send(res, 404, { error: 'Carte inconnue : vérifiez le code' }); }
+      if (b.op === 'blank') { if (!isAdmin(req, t)) return send(res, 403, { error: 'Réservé à l’organisation' }); blankCards(t, Math.min(200, +b.n || 30)); await save(t); return send(res, 201, { ok: true }); }
+    } catch (e) { return send(res, e.code || 400, { error: e.message }); }
+    return send(res, 400, { error: 'Opération inconnue' });
+  }
+
   // Buvette : enregistrement d'une vente (code organisateur, bénévole ou buvette). Idempotent via sid.
   if (action === 'sale' && method === 'POST') {
     const b = await readBody(req, 20000);
-    const pin = String(b.pin || '');
-    const ok = isAdmin(req, t) || (pin && ((t.volunteerPin && safeEq(pin, String(t.volunteerPin))) || (t.buvettePin && safeEq(pin, String(t.buvettePin)))));
-    if (!ok) return send(res, 403, { error: 'Code buvette incorrect' });
+    if (!barOk(req, b)) return send(res, 403, { error: 'Code buvette incorrect' });
+    if (b.method === 'points') {
+      try {
+        const r = cardSale(t, { code: b.card, items: b.items, sid: str(b.sid, 40), at: b.at, by: str(b.by, 40) });
+        if (!r.duplicate) await save(t);
+        return send(res, 201, { ok: true, pts: r.pts, balance: r.card.balance, name: r.card.name, code: r.card.code });
+      } catch (e) { return send(res, e.code || 400, { error: e.message, balance: e.balance }); }
+    }
     t.sales ??= [];
-    if (b.cancel) { const x = t.sales.find((y) => y.id === b.cancel); if (x) x.cancelled = true; await save(t); return send(res, 200, { ok: true }); }
+    if (b.cancel) { cancelSale(t, b.cancel); await save(t); return send(res, 200, { ok: true }); }
     const sid = str(b.sid, 40) || crypto.randomBytes(6).toString('hex');
     if (t.sales.some((x) => x.id === sid)) return send(res, 200, { ok: true, duplicate: true });
     const items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((it) => {
@@ -284,7 +315,7 @@ async function api(req, res, url) {
     if (b.status === 'live' && !m.startedAt) m.startedAt = new Date().toISOString();
     if (b.status === 'done') { m.finishedAt = new Date().toISOString(); m.validated = !t.scoreValidation || isAdmin(req, t); }
     if ('tieWinner' in b) m.tieWinner = ['A', 'B'].includes(b.tieWinner) ? b.tieWinner : null;
-    if ('timer' in b) m.timer = b.timer && typeof b.timer === 'object' ? { running: !!b.timer.running, elapsed: +b.timer.elapsed || 0, since: +b.timer.since || 0 } : null;
+    if ('timer' in b && (isAdmin(req, t) || t.timerControl === 'players')) m.timer = b.timer && typeof b.timer === 'object' ? { running: !!b.timer.running, elapsed: +b.timer.elapsed || 0, since: +b.timer.since || 0 } : null;
     if (b.submittedBy) m.submittedBy = str(b.submittedBy, 80);
     if (b.signatures) m.signatures = { A: str(b.signatures.A, 60), B: str(b.signatures.B, 60) };
     if (b.comment != null) m.comment = str(b.comment, 300);

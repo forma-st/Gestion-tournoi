@@ -2,7 +2,7 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, confirmBox, euros, plural, qrSvg, download, logo, $, $$ } from '../ui.js';
 import { uid } from '../engine.js';
-import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, pointsScored, ingredientStats, productCost } from '../money.js';
+import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, pointsScored, ingredientStats, productCost, productPoints, DEFAULT_PACKS, cardsSummary } from '../money.js';
 
 const CATS = ['Boissons', 'Snacks', 'Sucré', 'Salé', 'Autre'];
 const CAT_COLORS = { Boissons: '#00A6D6', Snacks: '#F2545B', Sucré: '#8E6CEF', Salé: '#FF8C42', Autre: '#3BB273' };
@@ -42,7 +42,95 @@ export async function declareDonation(t) {
 
 // ------------------------------------------------------------------ caisse tactile
 let cart = {};
-let method = 'cash';
+let method = null;
+
+const recentKey = (tid) => `rot:recentcards:${tid}`;
+const recentCards = (tid) => { try { return JSON.parse(sessionStorage.getItem(recentKey(tid))) || []; } catch { return []; } };
+function rememberCard(tid, c) {
+  const list = [{ code: c.code, name: c.name || '', balance: c.balance }, ...recentCards(tid).filter((x) => x.code !== c.code)].slice(0, 6);
+  try { sessionStorage.setItem(recentKey(tid), JSON.stringify(list)); } catch { /* */ }
+}
+
+/** URL de la carte virtuelle (le même QR sert au joueur et au scan de la buvette). */
+export const cardUrl = (t, c) => `${store.baseUrl()}#/carte/${t.id}/${c.code}?k=${c.key}`;
+const parseCode = (txt) => (String(txt).match(/carte\/[^/]+\/(\d{4,6})/) || String(txt).match(/^\s*(\d{4,6})\s*$/) || [])[1] || null;
+
+/** Scan du QR d'une carte avec la caméra (Android/Chrome) ; sinon on tape le code. */
+export function scanCard() {
+  return new Promise(async (resolve) => {
+    if (!('BarcodeDetector' in self) || !navigator.mediaDevices?.getUserMedia) { toast('Scan non disponible sur cet appareil : tapez le code de la carte', 'err'); return resolve(null); }
+    let stream;
+    const d = document.createElement('dialog');
+    d.innerHTML = '<div class="dh"><h3>Scanner la carte</h3></div><div class="db"><video playsinline muted style="width:100%;border-radius:12px;background:#000"></video></div><div class="df"><button class="btn ghost" data-x>Annuler</button></div>';
+    document.body.append(d); d.showModal();
+    let done = false;
+    const close = (v) => { if (done) return; done = true; stream?.getTracks().forEach((x) => x.stop()); d.close(); d.remove(); resolve(v); };
+    d.querySelector('[data-x]').onclick = () => close(null);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); close(null); });
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const v = d.querySelector('video'); v.srcObject = stream; await v.play();
+      const det = new BarcodeDetector({ formats: ['qr_code'] });
+      const loop = async () => {
+        if (done) return;
+        try { const r = await det.detect(v); const code = r.map((x) => parseCode(x.rawValue)).find(Boolean); if (code) { navigator.vibrate?.(60); return close(code); } } catch { /* */ }
+        setTimeout(loop, 200);
+      };
+      loop();
+    } catch { toast('Caméra inaccessible : tapez le code de la carte', 'err'); close(null); }
+  });
+}
+
+/** Demande le code d'une carte : clavier numérique, cartes récentes en un geste, ou scan. */
+async function askCard(t, { title, total = '', allowNew = false }) {
+  const recent = recentCards(t.id);
+  let scanned = null;
+  const r = await modal({
+    title, ok: allowNew ? 'Valider' : 'Débiter la carte',
+    body: html`${total ? html`<p class="num" style="font-size:2.6rem;text-align:center;margin:0">${total}</p>` : ''}
+      <label class="f">Code de la carte${allowNew ? html` <span class="hint">laisser vide pour une nouvelle carte virtuelle</span>` : ''}<input type="text" name="code" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" ${allowNew ? '' : raw('required')} autocomplete="off" style="font-size:2rem;text-align:center;letter-spacing:.3em" autofocus></label>
+      <button type="button" class="btn ghost block" data-scan>📷 Scanner le QR de la carte</button>
+      ${recent.length ? html`<div class="stack" style="gap:.4rem"><span class="small muted">Cartes récentes</span><div class="row">${recent.map((c) => html`<button type="button" class="btn ghost sm" data-code="${c.code}">${c.code}${c.name ? ` · ${c.name}` : ''}</button>`)}</div></div>` : ''}`,
+    onOpen(d) {
+      const input = d.querySelector('input[name=code]');
+      d.querySelectorAll('[data-code]').forEach((x) => { x.onclick = () => { input.value = x.dataset.code; d.querySelector('form').requestSubmit(); }; });
+      d.querySelector('[data-scan]').onclick = async () => { const c = await scanCard(); if (c) { input.value = c; scanned = c; d.querySelector('form').requestSubmit(); } };
+    },
+  });
+  if (!r) return undefined;
+  return (r.code || scanned || '').replace(/\D/g, '');
+}
+
+/** Vente ou recharge d'une carte à points. */
+async function sellCard(ctx, pin, presetCode = '') {
+  const { t } = ctx;
+  const packs = t.cardPacks?.length ? t.cardPacks : DEFAULT_PACKS;
+  const r = await modal({
+    title: 'Vendre ou recharger une carte', ok: 'Encaisser et créditer',
+    body: html`<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">${packs.map((p, i) => html`<label class="tile"><input type="radio" name="pack" value="${i}" ${i === Math.min(1, packs.length - 1) ? raw('checked') : ''}><b style="font-size:1.6rem">${euros(p.price)}</b><small>${p.points} points${p.points > p.price ? ` (+${p.points - p.price} offerts)` : ''}</small></label>`)}</div>
+      <div class="grid2"><label class="f">Code d’une carte existante <span class="hint">vide = nouvelle carte</span><input type="text" name="code" value="${presetCode}" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+      <label class="f">Prénom <span class="hint">facultatif</span><input type="text" name="name" maxlength="40" autocomplete="off"></label></div>
+      <button type="button" class="btn ghost sm" data-scan>📷 Scanner une carte</button>
+      <label class="f">Paiement<select name="method"><option value="cash">Espèces</option><option value="card">Carte bancaire (TPE)</option><option value="lydia">Lydia / Wero</option><option value="free">Offerte (bénévole)</option></select></label>`,
+    onOpen(d) { d.querySelector('[data-scan]').onclick = async () => { const c = await scanCard(); if (c) d.querySelector('input[name=code]').value = c; }; },
+  });
+  if (!r) return;
+  const pack = packs[+r.pack] || packs[0];
+  if (r.method === 'card') {
+    const ok = await modal({ title: 'Paiement par carte bancaire', body: html`<p style="text-align:center;margin:0">Tapez sur le TPE :</p><p class="num" style="text-align:center;font-size:4.5rem;margin:0;line-height:1">${euros(pack.price)}</p>`, ok: 'Paiement accepté', cancel: 'Paiement refusé / annulé' });
+    if (!ok) return;
+  }
+  try {
+    const c = await store.card(t.id, 'issue', { code: r.code.replace(/\D/g, '') || undefined, price: pack.price, points: pack.points, method: r.method, name: r.name, sid: `top-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` }, pin);
+    rememberCard(t.id, c);
+    await modal({ title: `Carte ${c.code}${c.name ? ` · ${c.name}` : ''}`, ok: 'Terminé', cancel: '',
+      body: html`<p class="num" style="text-align:center;font-size:3rem;margin:0;line-height:1">${c.balance} points</p>
+        <div class="qrbox"><div class="qr" style="width:220px">${qrSvg(cardUrl(t, c))}</div>
+        <p style="margin:0">Le joueur <b>scanne ce QR</b> : sa carte s’ouvre sur son téléphone, avec son solde à jour.</p>
+        <p class="small muted" style="margin:0">Sans téléphone : notez le code <b class="num" style="font-size:1.3rem;color:var(--ink)">${c.code}</b> sur sa main ou sur une carte papier.</p></div>` });
+    ctx.rerender();
+  } catch (e) { toast(e.message, 'err'); }
+}
 
 export async function caisseView(ctx) {
   const { t } = ctx;
@@ -57,33 +145,41 @@ export async function caisseView(ctx) {
       mount(root) { $('#barlogin', root).addEventListener('submit', (e) => { e.preventDefault(); sessionStorage.setItem(pinKey, e.target.pin.value.trim()); ctx.rerender(); }); },
     };
   }
+  const cardsOn = t.pointsCards !== false;
+  const methods = Object.fromEntries(Object.entries(PAY_METHODS).filter(([k]) => k !== 'points' || cardsOn));
+  if (!method || !methods[method]) method = cardsOn ? 'points' : 'cash';
   const prods = (t.buvette || []).filter((p) => p.id && p.name && p.active !== false);
   const st = t.sales ? buvetteStats(t) : null;
   const left = Object.fromEntries((st?.stock || []).map((p) => [p.id, p.left]));
   const total = Object.entries(cart).reduce((a, [pid, q]) => a + q * (+prods.find((p) => p.id === pid)?.price || 0), 0);
+  const pts = Object.entries(cart).reduce((a, [pid, q]) => a + q * productPoints(prods.find((p) => p.id === pid)), 0);
+  const any = Object.values(cart).some(Boolean);
   const cats = [...new Set(prods.map((p) => p.category || 'Autre'))];
   const recent = (t.sales || []).filter((s) => !s.cancelled).slice(-6).reverse();
+  const payLabel = method === 'points' ? `Débiter ${pts} pt${pts > 1 ? 's' : ''}` : `Encaisser ${euros(total)}`;
   return {
     title: 'Caisse buvette',
     html: html`<header class="topbar"><div class="in"><a class="brand" href="#/admin/${t.id}/buvette">${logo}<span>Buvette</span></a><span class="tname">${t.name}</span><span class="spacer"></span>
-      ${st ? html`<span class="net"><i></i>${euros(st.revenue)} encaissés</span>` : ''}${store.pending.filter((p) => p.kind === 'sale').length ? html`<span class="net off"><i></i>${store.pending.filter((p) => p.kind === 'sale').length} vente(s) en attente de réseau</span>` : ''}</div></header>
+      ${cardsOn ? html`<button class="btn ball sm" data-act="sell-card">💳 Vendre / recharger une carte</button><button class="btn ghost sm" data-act="check-card">Solde d’une carte</button>` : ''}
+      ${store.pending.filter((p) => p.kind === 'sale').length ? html`<span class="net off"><i></i>${store.pending.filter((p) => p.kind === 'sale').length} en attente de réseau</span>` : ''}</div></header>
     <main class="pos">
       <section class="pos-grid">${cats.map((c) => html`<h3 class="pos-cat">${c}</h3>${prods.filter((p) => (p.category || 'Autre') === c).map((p) => {
         const l = left[p.id];
         const out = l != null && l <= (cart[p.id] || 0);
         return html`<button class="pos-item" style="--c:${CAT_COLORS[p.category] || CAT_COLORS.Autre}" data-add="${p.id}" ${out ? raw('disabled') : ''}>
-          ${cart[p.id] ? html`<span class="pos-q">${cart[p.id]}</span>` : ''}<b>${p.name}</b><span>${euros(p.price)}</span>${l != null ? html`<small>${out ? 'Épuisé' : `Reste ${l - (cart[p.id] || 0)}`}</small>` : ''}</button>`;
+          ${cart[p.id] ? html`<span class="pos-q">${cart[p.id]}</span>` : ''}<b>${p.name}</b><span>${cardsOn ? html`<span class="pos-pts">${productPoints(p)} pt${productPoints(p) > 1 ? 's' : ''}</span> · ` : ''}${euros(p.price)}</span>${l != null ? html`<small>${out ? 'Épuisé' : `Reste ${l - (cart[p.id] || 0)}`}</small>` : ''}</button>`;
       })}`)}${!prods.length ? html`<div class="empty">Aucun produit. Ajoutez la carte dans l’administration (onglet Buvette).</div>` : ''}</section>
       <aside class="pos-cart card">
         <h3>Panier</h3>
-        <div class="stack" style="gap:.4rem">${Object.entries(cart).filter(([, q]) => q).map(([pid, q]) => { const p = prods.find((x) => x.id === pid); return p ? html`<div class="row between"><span>${q} × ${p.name}</span><span class="row"><b>${euros(q * p.price)}</b><button class="btn danger sm icon" data-rm="${pid}" aria-label="Retirer un ${p.name}">−</button></span></div>` : ''; })}
-          ${!Object.values(cart).some(Boolean) ? html`<p class="muted">Touchez un produit pour l’ajouter.</p>` : ''}</div>
-        <div class="row between" style="border-top:1.5px solid var(--line);padding-top:.6rem"><span>Total</span><span class="num" style="font-size:2.4rem">${euros(total)}</span></div>
-        <div class="seg" role="radiogroup" aria-label="Paiement" style="flex-wrap:wrap">${Object.entries(PAY_METHODS).map(([k, l]) => html`<button class="${method === k ? 'on' : ''}" data-method="${k}" role="radio" aria-checked="${method === k}">${l}</button>`)}</div>
+        <div class="stack" style="gap:.4rem">${Object.entries(cart).filter(([, q]) => q).map(([pid, q]) => { const p = prods.find((x) => x.id === pid); return p ? html`<div class="row between"><span>${q} × ${p.name}</span><span class="row"><b>${method === 'points' ? `${q * productPoints(p)} pt${q * productPoints(p) > 1 ? 's' : ''}` : euros(q * p.price)}</b><button class="btn danger sm icon" data-rm="${pid}" aria-label="Retirer un ${p.name}">−</button></span></div>` : ''; })}
+          ${!any ? html`<p class="muted">Touchez un produit pour l’ajouter.</p>` : ''}</div>
+        <div class="row between" style="border-top:1.5px solid var(--line);padding-top:.6rem"><span>Total</span><span class="num" style="font-size:2.4rem">${method === 'points' ? `${pts} pt${pts > 1 ? 's' : ''}` : euros(total)}</span></div>
+        ${cardsOn && any ? html`<p class="small muted" style="margin:-.6rem 0 0;text-align:right">soit ${method === 'points' ? euros(total) : `${pts} pts`}</p>` : ''}
+        <div class="seg" role="radiogroup" aria-label="Paiement" style="flex-wrap:wrap">${Object.entries(methods).map(([k, l]) => html`<button class="${method === k ? 'on' : ''}" data-method="${k}" role="radio" aria-checked="${method === k}">${l}</button>`)}</div>
         ${method === 'cash' && total ? html`<label class="f">Montant donné (pour calculer le rendu)<input type="number" step="0.5" min="0" id="given" inputmode="decimal"></label><p id="change" class="num" style="font-size:1.4rem;margin:0"></p>` : ''}
-        <button class="btn ball block" style="min-height:60px;font-size:1.2rem" data-act="pay" ${total || Object.values(cart).some(Boolean) ? '' : raw('disabled')}>Encaisser ${euros(total)}</button>
+        <button class="btn ball block" style="min-height:60px;font-size:1.2rem" data-act="pay" ${any ? '' : raw('disabled')}>${payLabel}</button>
         <button class="linkbtn small" data-act="clear">Vider le panier</button>
-        ${recent.length ? html`<div class="stack" style="gap:.3rem;margin-top:.5rem"><b class="small">Dernières ventes</b>${recent.map((s) => html`<div class="row between small"><span>${new Date(s.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${s.items.map((i) => `${i.qty} ${i.name}`).join(', ')}</span><span class="row">${euros(s.total)} <button class="linkbtn small" data-cancel="${s.id}">Annuler</button></span></div>`)}</div>` : ''}
+        ${recent.length ? html`<div class="stack" style="gap:.3rem;margin-top:.5rem"><b class="small">Dernières opérations</b>${recent.map((s) => html`<div class="row between small"><span>${new Date(s.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${s.kind === 'topup' ? `Carte ${s.card} +${s.points} pts` : s.items.map((i) => `${i.qty} ${i.name}`).join(', ')}</span><span class="row">${s.method === 'points' ? `${s.pts} pts` : euros(s.total)} <button class="linkbtn small" data-cancel="${s.id}">Annuler</button></span></div>`)}</div>` : ''}
       </aside>
     </main>`,
     mount(root) {
@@ -93,12 +189,35 @@ export async function caisseView(ctx) {
         if (rm) { cart[rm.dataset.rm] = Math.max(0, (cart[rm.dataset.rm] || 0) - 1); ctx.repaint(); }
         if (m) { method = m.dataset.method; ctx.repaint(); }
         if (act?.dataset.act === 'clear') { cart = {}; ctx.repaint(); }
-        if (cancel && (await confirmBox('Annuler cette vente ?', 'Elle sera retirée des comptes et le stock rétabli.', 'Annuler la vente'))) {
-          try { await store.sale(t.id, { cancel: cancel.dataset.cancel, items: [] }, pin); toast('Vente annulée'); ctx.rerender(); } catch (err) { toast(err.message, 'err'); }
+        if (act?.dataset.act === 'sell-card') return sellCard(ctx, pin);
+        if (act?.dataset.act === 'check-card') {
+          const code = await askCard(t, { title: 'Solde d’une carte', allowNew: false });
+          if (!code) return;
+          try { const c = await store.card(t.id, 'lookup', { code }, pin); rememberCard(t.id, c); const again = await modal({ title: `Carte ${c.code}${c.name ? ` · ${c.name}` : ''}`, ok: 'Recharger', cancel: 'Fermer', body: html`<p class="num" style="text-align:center;font-size:3.4rem;margin:0">${c.balance} pts</p>` }); if (again) sellCard(ctx, pin, c.code); }
+          catch (err) { toast(err.message, 'err'); }
+        }
+        if (cancel && (await confirmBox('Annuler cette opération ?', 'Elle sera retirée des comptes ; les points sont rendus (ou retirés pour une recharge).', 'Annuler l’opération'))) {
+          try { await store.sale(t.id, { cancel: cancel.dataset.cancel, items: [] }, pin); toast('Opération annulée'); ctx.rerender(); } catch (err) { toast(err.message, 'err'); }
         }
         if (act?.dataset.act === 'pay') {
           const items = Object.entries(cart).filter(([, q]) => q).map(([pid, qty]) => ({ pid, qty }));
           if (!items.length) return;
+          if (method === 'points') {
+            const code = await askCard(t, { title: 'Paiement par carte à points', total: `${pts} pts` });
+            if (!code) return;
+            try {
+              const r = await store.sale(t.id, { items, method: 'points', card: code }, pin);
+              rememberCard(t.id, { code: r.code, name: r.name, balance: r.balance });
+              toast(`✓ ${r.name ? `${r.name} : ` : `Carte ${r.code} : `}−${r.pts} pts · reste ${r.balance} pts`, 'ok');
+              navigator.vibrate?.([30, 40, 30]);
+              cart = {}; ctx.rerender();
+            } catch (err) {
+              if (err.status === 409) { const top = await modal({ title: 'Solde insuffisant', body: html`<p style="margin:0">${err.message}.</p>`, ok: 'Recharger la carte', cancel: 'Fermer' }); if (top) sellCard(ctx, pin, code); }
+              else toast(err.message, 'err');
+              if (err.status === 403) { sessionStorage.removeItem(pinKey); ctx.rerender(); }
+            }
+            return;
+          }
           if (method === 'card') {
             const ok = await modal({ title: 'Paiement par carte', body: html`<p style="text-align:center;margin:0">Tapez sur le TPE :</p><p class="num" style="text-align:center;font-size:4.5rem;margin:0;line-height:1">${euros(total)}</p><p class="hint" style="text-align:center;margin:0">Validez ici une fois le ticket du TPE accepté.</p>`, ok: 'Paiement accepté', cancel: 'Paiement refusé / annulé' });
             if (!ok) return;
@@ -121,6 +240,28 @@ export async function caisseView(ctx) {
   };
 }
 
+// ------------------------------------------------------------------ carte virtuelle du joueur
+export async function carteView(ctx) {
+  const { t } = ctx;
+  const code = ctx.route.params[1];
+  const key = ctx.route.query.k || (() => { try { return JSON.parse(localStorage.getItem(`rot:card:${t.id}`))?.key; } catch { return ''; } })();
+  let c = null, err = '';
+  try { c = await store.myCard(t.id, code, key); } catch (e) { err = e.message; }
+  if (c) try { localStorage.setItem(`rot:card:${t.id}`, JSON.stringify({ code, key })); } catch { /* */ }
+  return {
+    title: `Carte buvette ${code}`,
+    html: html`<main class="sheet" style="max-width:460px">
+      ${err ? html`<div class="empty">${err}</div>` : html`<div class="card stack" style="background:var(--ink);color:#fff;text-align:center">
+        <span class="small" style="opacity:.8">${t.name} · carte buvette${c.name ? ` de ${c.name}` : ''}</span>
+        <div class="num" style="font-size:5rem;line-height:1;color:var(--ball)">${c.balance}</div><b>points</b>
+        <div class="qr" style="width:210px;margin:0 auto;background:#fff;padding:8px;border-radius:12px">${qrSvg(`${store.baseUrl()}#/carte/${t.id}/${code}?k=${key}`)}</div>
+        <span>Montrez ce QR à la buvette, ou donnez le code <b class="num" style="font-size:1.6rem;color:var(--ball)">${code}</b></span></div>
+      <div class="card"><h3>Historique</h3>${c.ops.length ? html`<table class="t"><tbody>${c.ops.map((o) => html`<tr><td class="small muted">${new Date(o.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</td><td>${o.label}</td><td class="n num" style="color:${o.delta > 0 ? 'var(--win)' : 'var(--loss)'}">${o.delta > 0 ? '+' : ''}${o.delta}</td></tr>`)}</tbody></table>` : html`<p class="muted" style="margin:0">Pas encore d’achat.</p>`}</div>
+      <p class="small muted" style="text-align:center">Astuce : ajoutez cette page à l’écran d’accueil pour retrouver votre carte. <a href="#/t/${t.id}/buvette">Voir la carte de la buvette</a></p>`}
+    </main>`,
+  };
+}
+
 // ------------------------------------------------------------------ admin : buvette
 export function adminBuvette(ctx) {
   const { t } = ctx;
@@ -136,16 +277,18 @@ export function adminBuvette(ctx) {
     </div>
     ${st.stock.some((p) => p.low) ? html`<div class="next-step"><b>Stock bas :</b> ${st.stock.filter((p) => p.low).map((p) => `${p.name} (${p.left})`).join(', ')}</div>` : ''}
     <div class="card tscroll"><div class="row between"><h3 style="margin:0">Carte et stock</h3><button class="btn ghost sm" data-act="add-buvette">Ajouter un produit</button></div>
-      <table class="t" style="margin-top:.5rem"><thead><tr><th>Produit</th><th>Catégorie</th><th class="n">Prix de vente</th><th class="n">Prix d’achat</th><th class="n">Stock de départ</th><th class="n">Vendus</th><th class="n">Reste</th><th class="n">CA</th>${t.lastYear ? html`<th class="n" title="Vendus la dernière fois">${t.lastYear.label}</th>` : ''}<th>En vente</th><th></th></tr></thead>
+      <table class="t" style="margin-top:.5rem"><thead><tr><th>Produit</th><th>Catégorie</th><th class="n">Prix de vente</th>${t.pointsCards !== false ? html`<th class="n">Points</th>` : ''}<th class="n">Prix d’achat</th><th class="n">Stock de départ</th><th class="n">Vendus</th><th class="n">Reste</th><th class="n">CA</th>${t.lastYear ? html`<th class="n" title="Vendus la dernière fois">${t.lastYear.label}</th>` : ''}<th>En vente</th><th></th></tr></thead>
       <tbody>${(t.buvette || []).map((p, i) => { const s = st.stock[i] || {}; return html`<tr>
         <td><input type="text" data-path="buvette.${i}.name" value="${p.name}" style="min-width:140px"></td>
         <td><select data-path="buvette.${i}.category">${CATS.map((c) => html`<option ${p.category === c ? raw('selected') : ''}>${c}</option>`)}</select></td>
         <td><input type="number" step="0.1" min="0" data-type="num" data-path="buvette.${i}.price" value="${p.price}" style="width:90px"></td>
+        ${t.pointsCards !== false ? html`<td><input type="number" step="1" min="0" data-type="nullnum" data-path="buvette.${i}.points" value="${p.points ?? ''}" placeholder="${productPoints({ price: p.price })}" style="width:70px" title="Vide = arrondi du prix"></td>` : ''}
         <td><input type="number" step="0.01" min="0" data-type="num" data-path="buvette.${i}.cost" value="${p.cost || ''}" placeholder="${productCost(t, { ...p, cost: 0 }).toFixed(2)}" style="width:90px" title="Vide = calculé depuis la recette"></td>
         <td><input type="number" step="1" min="0" data-type="nullnum" data-path="buvette.${i}.stock" value="${p.stock ?? ''}" style="width:90px" placeholder="∞"></td>
         <td class="n">${s.sold || 0}</td><td class="n" style="${s.low ? 'color:var(--loss);font-weight:700' : ''}">${s.left ?? '∞'}</td><td class="n">${euros(st.top.find((x) => x.pid === p.id)?.revenue || 0)}</td>${t.lastYear ? html`<td class="n muted">${t.lastYear.sold?.[p.id] ?? '—'}</td>` : ''}
         <td><input type="checkbox" data-path="buvette.${i}.active" ${p.active !== false ? raw('checked') : ''} aria-label="En vente"></td>
         <td><div class="row" style="flex-wrap:nowrap"><button class="btn ghost sm" data-act="recipe" data-i="${i}">Recette${p.recipe?.length ? ` (${p.recipe.length})` : ''}</button><button class="btn danger sm" data-act="rm-buvette" data-i="${i}" aria-label="Supprimer">✕</button></div></td></tr>`; })}</tbody></table></div>
+    ${cardsCard(t)}
     ${ingredientsCard(t)}
     <div class="grid2">
       <div class="card"><h3>Par moyen de paiement</h3><table class="t"><tbody>${Object.entries(PAY_METHODS).map(([k, l]) => html`<tr><td>${l}</td><td class="n">${euros(st.byMethod[k] || 0)}</td></tr>`)}</tbody></table></div>
@@ -159,6 +302,25 @@ export function adminBuvette(ctx) {
       </form>
       <div class="card qrbox"><h3>Caisse sur téléphone ou tablette</h3><div class="qr">${qrSvg(`${base}#/caisse/${t.id}`)}</div><span class="hint">Scannez, puis saisissez le code buvette.</span></div>
     </div>
+  </div>`;
+}
+
+function cardsCard(t) {
+  const on = t.pointsCards !== false;
+  const packs = t.cardPacks?.length ? t.cardPacks : DEFAULT_PACKS;
+  const cs = cardsSummary(t);
+  const cards = (t.cards || []).filter((c) => c.ops?.length).sort((a, b) => b.balance - a.balance);
+  return html`<div class="card stack"><div class="row between"><div><h3 style="margin:0">Cartes à points</h3><p class="hint" style="margin:0">Le joueur achète une carte (ex. 10 € = 12 points) puis paie en points : pas de monnaie à rendre, file d’attente plus rapide.</p></div>
+      <label class="check"><input type="checkbox" data-path="pointsCards" ${on ? raw('checked') : ''}> Activer</label></div>
+    ${on ? html`
+      <div class="kpis"><div class="kpi"><div class="v">${cs.count}</div><div class="l">cartes vendues${cs.blank ? ` · ${cs.blank} vierges` : ''}</div></div><div class="kpi"><div class="v">${euros(cs.money)}</div><div class="l">encaissés en cartes</div></div>
+        <div class="kpi"><div class="v">${cs.used}</div><div class="l">points dépensés sur ${cs.issued}</div></div><div class="kpi"><div class="v">${cs.left}</div><div class="l">points restants sur les cartes</div></div></div>
+      <div class="stack" style="gap:.5rem"><b class="small">Formules proposées</b>
+        ${packs.map((p, i) => html`<div class="row"><input type="number" min="1" step="1" data-type="num" data-path="cardPacks.${i}.price" value="${p.price}" style="width:90px" aria-label="Prix"> € =<input type="number" min="1" step="1" data-type="num" data-path="cardPacks.${i}.points" value="${p.points}" style="width:90px" aria-label="Points"> points<button class="btn danger sm" data-act="rm-pack" data-i="${i}" aria-label="Supprimer">✕</button></div>`)}
+        <div><button class="btn ghost sm" data-act="add-pack">Ajouter une formule</button></div></div>
+      <div class="row"><button class="btn ghost" data-act="blank-cards">Préparer 30 cartes papier à imprimer</button>${(t.cards || []).some((c) => !c.ops?.length) ? html`<a class="btn ghost" href="#/print/${t.id}/cartes" target="_blank">Imprimer les cartes vierges</a>` : ''}</div>
+      ${cards.length ? html`<details><summary class="small">Voir les ${cards.length} cartes en circulation</summary><table class="t"><thead><tr><th>Code</th><th>Prénom</th><th class="n">Solde</th><th>Dernière opération</th></tr></thead><tbody>${cards.map((c) => html`<tr><td class="num">${c.code}</td><td>${c.name || '—'}</td><td class="n num">${c.balance}</td><td class="small muted">${c.ops.at(-1)?.label || ''}</td></tr>`)}</tbody></table></details>` : ''}`
+    : ''}
   </div>`;
 }
 
@@ -237,6 +399,11 @@ export async function barActions(ctx, act, b, save) {
     case 'add-buvette': await save((d) => { (d.buvette ??= []).push({ id: uid(5), name: '', price: 1, cost: 0, stock: null, category: 'Boissons', active: true }); }); return true;
     case 'rm-buvette': await save((d) => { d.buvette.splice(+b.dataset.i, 1); }); return true;
     case 'export-sales': download(`${t.id}-buvette.csv`, salesCsv(t), 'text/csv;charset=utf-8'); return true;
+    case 'add-pack': await save((d) => { d.cardPacks = [...(d.cardPacks?.length ? d.cardPacks : DEFAULT_PACKS), { price: 15, points: 18 }]; }); return true;
+    case 'rm-pack': await save((d) => { d.cardPacks = (d.cardPacks?.length ? d.cardPacks : DEFAULT_PACKS).filter((_, i) => i !== +b.dataset.i); }); return true;
+    case 'blank-cards':
+      try { await store.card(t.id, 'blank', { n: 30 }); toast('30 cartes prêtes : imprimez-les', 'ok'); location.hash = `#/print/${t.id}/cartes`; } catch (e) { toast(e.message, 'err'); }
+      return true;
     case 'add-ing': await save((d) => { (d.ingredients ??= []).push({ id: uid(5), name: '', unit: 'pièce', bought: null, price: 0 }); }); return true;
     case 'rm-ing': await save((d) => { d.ingredients.splice(+b.dataset.i, 1); }); return true;
     case 'export-ing': {

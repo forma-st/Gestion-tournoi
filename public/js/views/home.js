@@ -141,6 +141,7 @@ export async function wizardView(ctx) {
       root.addEventListener('click', async (e) => {
         const a = e.target.closest('[data-act]');
         if (!a) return;
+        if (a.dataset.act === 'courts-dec' || a.dataset.act === 'courts-inc') { applyField(t, { dataset: { path: 'courtCount' }, value: t.courts.length + (a.dataset.act === 'courts-inc' ? 1 : -1), type: 'number' }); saveDraft(t); ctx.rerender(); }
         if (a.dataset.act === 'add-break') { t.breaks.push({ afterSlot: 3, minutes: 30, label: 'Pause' }); saveDraft(t); ctx.rerender(); }
         if (a.dataset.act === 'rm-break') { t.breaks.splice(+a.dataset.i, 1); saveDraft(t); ctx.rerender(); }
         if (a.dataset.act === 'pick-formula') { t.format = { type: 'roundrobin', legs: +a.dataset.legs, finalsTop: +a.dataset.top, thirdPlace: true }; saveDraft(t); ctx.rerender(); }

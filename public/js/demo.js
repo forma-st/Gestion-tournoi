@@ -1,5 +1,6 @@
 // Tournois d'exemple : le multisport de la semaine prochaine, le format 18 équipes, une double élimination.
 import { newPlayer } from './club.js';
+import { issueCard, cardSale } from './money.js';
 import { newTournament, makeTeam, buildSchedule, resolve, scoringFor, BYE, COURT_COLORS, SCORING_PRESETS, uid } from './engine.js';
 
 const NAMES = ['Les Smasheurs', 'Block Party', 'Les Pieds Carrés', 'Service Gagnant', 'Filet Mignon', 'Les Manchettes', 'Ace Ventura', 'Les Libéros', 'Team Réception', 'Les Passeurs Fous', 'Sable Chaud', 'Les Contres Attaques', 'Volley Gones', 'Les Kangourous', 'Pas de Côté', 'Les Rotations', 'Bloc Opératoire', 'Les Tie-Breakers'];
@@ -68,6 +69,19 @@ function fakeSales(n) {
 
 export function buildDemo(kind = 'multisport') {
   if (kind === 'multisport') {
+    const t = telethon();
+    // quelques cartes à points déjà vendues
+    for (const [name, price, points, method] of [['Camille', 10, 12, 'cash'], ['Hugo', 20, 25, 'card'], ['Inès', 5, 6, 'lydia']]) {
+      const c = issueCard(t, { price, points, method, name, at: new Date(Date.now() - 50 * 60e3).toISOString() });
+      cardSale(t, { code: c.code, items: [{ pid: 'cafe', qty: 1 }, { pid: name === 'Hugo' ? 'jf' : 'cn', qty: 1 }], at: new Date(Date.now() - 20 * 60e3).toISOString() });
+    }
+    return t;
+  }
+  return buildOther(kind);
+}
+
+function telethon() {
+  {
     const time = (min) => ({ ...SCORING_PRESETS['time-8'], durationMin: min, ranking: 'participation', preset: 'time-8' });
     return newTournament({
       name: 'Tournoi du Téléthon',
@@ -104,6 +118,9 @@ export function buildDemo(kind = 'multisport') {
       teams: mkTeams(7).map((x) => ({ ...x, players: [...x.players, 'Lina'], payment: 'unpaid', checkedIn: false })),
     });
   }
+}
+
+function buildOther(kind) {
   if (kind === 'interne') {
     const first = ['Camille', 'Hugo', 'Léa', 'Yanis', 'Inès', 'Mathis', 'Chloé', 'Nathan', 'Manon', 'Lucas', 'Sarah', 'Théo', 'Jade', 'Adam', 'Zoé', 'Louis', 'Emma', 'Noah', 'Lina', 'Gabriel', 'Alice', 'Jules', 'Rose', 'Arthur', 'Anna', 'Raphaël'];
     const fem = new Set(['Camille', 'Léa', 'Inès', 'Chloé', 'Manon', 'Sarah', 'Jade', 'Zoé', 'Emma', 'Lina', 'Alice', 'Rose', 'Anna']);

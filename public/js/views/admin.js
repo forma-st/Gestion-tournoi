@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
-import { buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam } from '../engine.js';
+import { buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation } from '../engine.js';
+import { clock, elapsedOf } from '../time.js';
 import { shell } from './shell.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS } from './settings.js';
 import { compareTable } from './home.js';
@@ -106,6 +107,7 @@ const PANELS = {
     const phases = phaseProgress(t);
     return html`
       <div class="next-step"><div style="flex:1;min-width:220px"><h3>${next.title}</h3><p>${next.text}</p></div>${next.action || ''}</div>
+      ${rotationPanel(ctx)}
       ${store.reach() !== 'internet' && t.status !== 'done' ? html`<div class="card row between" style="margin-top:1rem;border-left:6px solid var(--ball)"><span><b>Pas de Wi-Fi au gymnase ?</b> Passez en ligne pour que les joueurs utilisent leur 4G.</span><a class="btn ghost sm" href="#/admin/${t.id}/terrains">Voir comment</a></div>` : ''}
       <div class="kpis section" style="margin-top:1rem">
         <div class="kpi"><div class="v">${conf.length}<span class="muted" style="font-size:1.2rem">/${t.registration.maxTeams}</span></div><div class="l">équipes confirmées</div></div>
@@ -257,7 +259,7 @@ const PANELS = {
     const f = ctx.route.query.f || 'all';
     const slots = [...new Set(t.matches.filter((m) => m.slot != null).map((m) => m.slot))].sort((a, b) => a - b);
     const filt = (m) => f === 'all' || m.status === f || (f === 'validate' && m.status === 'done' && t.scoreValidation && !m.validated);
-    return html`<div class="row between"><h2 style="margin:0">Matchs</h2>
+    return html`${rotationPanel(ctx)}<div class="row between" style="margin-top:1rem"><h2 style="margin:0">Matchs</h2>
       <div class="filters">${Object.entries({ all: 'Tous', live: 'En cours', scheduled: 'À venir', done: 'Terminés', ...(t.scoreValidation ? { validate: 'À valider' } : {}) }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div></div>
       ${slots.map((s) => {
         const ms = t.matches.filter((m) => m.slot === s && m.status !== 'bye' && filt(m)).sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId));
@@ -382,6 +384,30 @@ ${connexionCard(t)}
 };
 
 // ------------------------------------------------------------------ fragments
+/** Pilotage de la rotation en cours : un bouton lance tous les matchs (et leurs chronos) d'un coup. */
+function rotationPanel(ctx) {
+  const { t, resolved } = ctx;
+  const slot = currentSlot(t);
+  if (slot == null || !t.matches.length) return '';
+  const ms = t.matches.filter((m) => m.slot === slot && m.status !== 'bye');
+  const ready = ms.filter((m) => m.status === 'scheduled' && resolved[m.id]?.a && resolved[m.id]?.b);
+  const live = ms.filter((m) => m.status === 'live');
+  const timed = live.find((m) => m.timer);
+  const dur = timed ? scoringFor(t, timed).durationMin : 0;
+  const over = timed && elapsedOf(timed.timer) >= dur * 60000;
+  const done = ms.filter((m) => m.status === 'done').length;
+  return html`<div class="card row between" style="margin-top:1rem;background:var(--ink);color:#fff;gap:1rem">
+    <div><div style="opacity:.75" class="small">Rotation ${slot + 1} · prévue à ${slotTime(t, slot)} · ${ms.length} matchs${done ? ` · ${done} terminés` : ''}</div>
+      ${timed ? html`<div class="num" style="font-size:3rem;line-height:1;color:${over ? 'var(--ball)' : '#fff'}" data-timer="${JSON.stringify(timed.timer)}" data-dur="${dur}">⏱</div>`
+      : live.length ? html`<div class="num" style="font-size:1.8rem">En cours</div>` : html`<div class="num" style="font-size:1.8rem">Prête à démarrer</div>`}</div>
+    <div class="row">
+      ${ready.length ? html`<button class="btn ball" style="min-height:56px;font-size:1.15rem" data-act="rot-start" data-slot="${slot}">▶ Lancer la rotation ${slot + 1}</button>` : ''}
+      ${timed && timed.timer.running ? html`<button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="rot-pause" data-slot="${slot}">Pause</button>` : ''}
+      ${timed && !timed.timer.running ? html`<button class="btn ball" data-act="rot-resume" data-slot="${slot}">Reprendre</button>` : ''}
+      <a class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" href="#/admin/${t.id}/matchs?f=live">Scores</a>
+    </div></div>`;
+}
+
 /** Comment les téléphones des joueurs rejoignent l'application (4G, Wi-Fi local, ou ce navigateur seul). */
 function connexionCard(t) {
   const reach = store.reach();
@@ -596,6 +622,22 @@ async function onClick(ctx, e) {
         y.checkedIn = !!y.forceIn || (y.present || []).length >= (d.registration.minPlayers || 1);
         if (y.checkedIn) y.late = false;
       });
+      return rr();
+    }
+    case 'rot-start': case 'rot-pause': case 'rot-resume': {
+      const slot = +b.dataset.slot, now = clock.now();
+      let n = 0;
+      await save(ctx, (d) => {
+        if (act === 'rot-start') n = startRotation(d, slot, now).length;
+        else toggleRotation(d, slot, now, act === 'rot-resume');
+      }, act === 'rot-start' ? `Rotation ${slot + 1} lancée` : act === 'rot-pause' ? 'Chronos en pause' : 'Chronos relancés');
+      return rr();
+    }
+    case 'courts-dec': case 'courts-inc': {
+      const n = t.courts.length + (act === 'courts-inc' ? 1 : -1);
+      if (n < 1 || n > 12) return;
+      const regen = !hasResults(t) && t.teams.filter((x) => x.status === 'confirmed').length >= 2;
+      await save(ctx, (d) => { applyField(d, { dataset: { path: 'courtCount' }, value: n, type: 'number' }); if (regen) Object.assign(d, buildSchedule(d)); }, regen ? `${n} terrain${n > 1 ? 's' : ''} : planning recalculé` : `${n} terrain${n > 1 ? 's' : ''}`);
       return rr();
     }
     case 'use-format': {

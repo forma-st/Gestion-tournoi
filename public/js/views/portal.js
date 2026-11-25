@@ -146,7 +146,14 @@ function infos(ctx, role) {
 function buvette(ctx) {
   const items = (ctx.t.buvette || []).filter((b) => b.name);
   if (!items.length) return html`<div class="empty"><p>La carte de la buvette n’a pas encore été publiée.</p></div>`;
-  return html`<div class="card"><h3>Buvette</h3><table class="t"><tbody>${items.map((b) => html`<tr><td>${b.name}</td><td class="n num" style="font-size:1.2rem">${euros(b.price)}</td></tr>`)}</tbody></table>
+  const t = ctx.t;
+  const pc = t.pointsCards !== false;
+  let mine = null; try { mine = JSON.parse(localStorage.getItem(`rot:card:${t.id}`)); } catch { /* */ }
+  const packs = t.cardPacks?.length ? t.cardPacks : [{ price: 5, points: 6 }, { price: 10, points: 12 }, { price: 20, points: 25 }];
+  return html`${pc ? html`<div class="card stack" style="margin-bottom:1rem"><h3 style="margin:0">Carte à points</h3>
+      <p style="margin:0">Achetez une carte à la buvette : ${packs.map((p) => `${euros(p.price)} = ${p.points} points`).join(' · ')}. Vous payez ensuite en points, sans monnaie.</p>
+      ${mine ? html`<a class="btn ball" href="#/carte/${t.id}/${mine.code}?k=${mine.key}">Ma carte ${mine.code}</a>` : html`<p class="hint" style="margin:0">Votre carte s’ouvre ici quand vous scannez son QR code.</p>`}</div>` : ''}
+    <div class="card"><h3>Buvette</h3><table class="t"><tbody>${items.map((b) => html`<tr><td>${b.name}</td>${pc ? html`<td class="n num" style="font-size:1.2rem;color:var(--court)">${b.points ?? Math.ceil(+b.price || 0)} pts</td>` : ''}<td class="n num" style="font-size:1.2rem">${euros(b.price)}</td></tr>`)}</tbody></table>
     ${ctx.t.charity?.enabled ? html`<p class="hint" style="margin:.75rem 0 0">Les bénéfices de la buvette sont reversés au ${ctx.t.charity.label}.</p>` : ''}</div>`;
 }
 

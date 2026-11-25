@@ -235,3 +235,43 @@ test('tournoi interne : 26 joueurs de niveaux 1 à 4 → équipes équilibrées,
   assert.ok(sug[0].fits);
   assert.ok(sug.every((s, i) => i === 0 || !s.fits || s.minPerTeam <= sug[0].minPerTeam));
 });
+
+test('rotation lancée par l’organisation : tous les matchs démarrent ensemble, pause et reprise', () => {
+  const t = E.buildSchedule(buildDemo('multisport'));
+  const slot = E.currentSlot(t);
+  assert.equal(slot, 0);
+  const started = E.startRotation(t, slot, 1000);
+  assert.equal(started.length, 3);
+  for (const m of t.matches.filter((x) => x.slot === 0)) { assert.equal(m.status, 'live'); assert.deepEqual(m.timer, { running: true, elapsed: 0, since: 1000 }); }
+  E.toggleRotation(t, 0, 61000, false);
+  assert.ok(t.matches.filter((x) => x.slot === 0).every((m) => !m.timer.running && m.timer.elapsed === 60000));
+  E.toggleRotation(t, 0, 90000, true);
+  assert.ok(t.matches.filter((x) => x.slot === 0).every((m) => m.timer.running && m.timer.since === 90000));
+});
+
+import * as M from '../public/js/money.js';
+test('buvette : carte 10 € = 12 points, paiement en points, solde insuffisant refusé, recette comptée une seule fois', () => {
+  const t = buildDemo('multisport');
+  t.sales = [];
+  const card = M.issueCard(t, { price: 10, points: 12, method: 'cash', name: 'Camille' });
+  assert.match(card.code, /^\d{4}$/);
+  assert.equal(card.balance, 12);
+  // jambon-beurre 3,50 € = 4 pts ; café 1 € = 1 pt
+  const r = M.cardSale(t, { code: card.code, items: [{ pid: 'jb', qty: 2 }, { pid: 'cafe', qty: 1 }] });
+  assert.equal(r.pts, 9);
+  assert.equal(M.findCard(t, card.code).balance, 3);
+  assert.throws(() => M.cardSale(t, { code: card.code, items: [{ pid: 'jb', qty: 1 }] }), /Solde insuffisant/);
+  // rejouer la même vente (file hors ligne) ne débite pas deux fois
+  M.cardSale(t, { code: card.code, items: [{ pid: 'cafe', qty: 1 }], sid: 'x1' });
+  M.cardSale(t, { code: card.code, items: [{ pid: 'cafe', qty: 1 }], sid: 'x1' });
+  assert.equal(M.findCard(t, card.code).balance, 2);
+  const st = M.buvetteStats(t);
+  assert.equal(st.revenue, 10); // seulement l'achat de la carte
+  assert.equal(st.top.find((p) => p.pid === 'jb').qty, 2); // le stock et les recettes suivent quand même
+  const cs = M.cardsSummary(t);
+  assert.deepEqual([cs.issued, cs.used, cs.left], [12, 10, 2]);
+  // recharge d'une carte vierge pré-imprimée
+  const [blank] = M.blankCards(t, 1);
+  M.issueCard(t, { code: blank.code, price: 5, points: 6, method: 'card' });
+  assert.equal(M.findCard(t, blank.code).balance, 6);
+});
