@@ -6,7 +6,7 @@ import { shell } from './shell.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
 
 // ------------------------------------------------------------------ accueil
-export async function homeView() {
+export async function homeView(ctx) {
   const list = await store.list();
   const demoCourts = [
     { c: '#0B6E2E', s: '🏐 Volley', a: 'Les Smasheurs', b: 'Block Party', pa: 6, pb: 4, t: '08:12' },
@@ -61,10 +61,12 @@ export async function homeView() {
           ].map(([ic, b, s]) => html`<div class="feature"><span class="ic">${ic}</span><b>${b}</b><span>${s}</span></div>`)}
         </div>
       </section>
+      ${store.keyRequired ? html`<p class="small section" style="margin-bottom:0">${store.adminKey() ? '🔑 Clé organisateur enregistrée sur cet appareil.' : '🔑 Pour créer un tournoi, la clé organisateur vous sera demandée.'} <button class="linkbtn small" data-act="admin-key">${store.adminKey() ? 'Changer' : 'Saisir la clé'}</button></p>` : ''}
       <p class="small muted section">${store.mode === 'local' ? 'Mode autonome : vos tournois sont enregistrés dans ce navigateur. Lancez le serveur Rotation pour partager les scores entre téléphones.' : 'Connecté au serveur Rotation : les scores sont partagés en direct entre tous les appareils du réseau.'}</p>
     </main>`,
     mount(root) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act=admin-key]')) { await askAdminKey(); return ctx.rerender(); }
         const b = e.target.closest('[data-act=demo]');
         if (!b) return;
         b.disabled = true;
@@ -164,13 +166,26 @@ export async function wizardView(ctx) {
 }
 
 /** Crée le tournoi ; si le serveur est en ligne, demande la clé organisateur affichée à son démarrage. */
+/** Demande la clé organisateur, la vérifie auprès du serveur et la garde sur cet appareil. Renvoie true si elle est bonne. */
+export async function askAdminKey() {
+  let error = '';
+  for (let i = 0; i < 5; i++) {
+    const r = await modal({ title: 'Clé organisateur', ok: 'Valider', body: html`<p style="margin:0">Seule l’organisation peut créer un tournoi. ${store.hosted ? 'La clé est celle de la variable ADMIN_KEY du projet Vercel.' : 'La clé s’affiche dans la fenêtre du serveur, au démarrage.'} Elle est ensuite gardée sur cet appareil.</p>
+      ${error ? html`<p class="pill no" style="justify-self:start">${error}</p>` : ''}
+      <label class="f">Clé organisateur<input type="text" name="key" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="60" value="${store.adminKey()}"></label>` });
+    if (!r) return false;
+    error = await store.checkAdminKey(r.key);
+    if (!error) { store.setAdminKey(r.key); toast('Clé organisateur enregistrée sur cet appareil', 'ok'); return true; }
+  }
+  return false;
+}
+
+/** Crée le tournoi ; si le serveur est en ligne, demande (et vérifie) la clé organisateur. */
 export async function createTournament(t) {
   try { return await store.create(t); }
   catch (e) {
     if (e.status !== 401) throw e;
-    const r = await modal({ title: 'Clé organisateur', ok: 'Valider', body: html`<p style="margin:0">Le serveur est accessible depuis Internet : seule l’organisation peut créer un tournoi. La clé s’affiche dans la fenêtre du serveur, au démarrage.</p><label class="f">Clé organisateur<input type="text" name="key" required autocomplete="off" autocapitalize="characters" maxlength="40"></label>` });
-    if (!r) throw new Error('Création annulée');
-    store.setAdminKey(r.key);
+    if (!(await askAdminKey())) throw new Error('Création annulée : clé organisateur manquante');
     return store.create(t);
   }
 }

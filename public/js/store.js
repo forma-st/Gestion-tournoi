@@ -328,6 +328,12 @@ export const store = {
   },
 
   setAdminKey(k) { LS.set('rot:adminKey', (k || '').trim()); },
+  adminKey() { return LS.get('rot:adminKey', ''); },
+  /** Vérifie une clé organisateur auprès du serveur ; renvoie un message d'erreur ou ''. */
+  async checkAdminKey(k) {
+    try { await this.api('key', { method: 'POST', headers: { 'x-admin-key': (k || '').trim() } }); return ''; }
+    catch (e) { return e.status ? e.message : 'Pas de réseau : réessayez'; }
+  },
 
   /**
    * Adresse à mettre dans les QR codes, par ordre de priorité :

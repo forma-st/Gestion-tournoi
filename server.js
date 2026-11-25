@@ -25,7 +25,7 @@ const TUNNEL = TAILSCALE || process.argv.includes('--tunnel') || process.env.TUN
 let publicUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const ONLINE = () => IS_VERCEL || TUNNEL || !!publicUrl;
 // Clé organisateur : protège la création de tournois quand l'application est accessible depuis Internet
-const ADMIN_KEY = process.env.ADMIN_KEY || (TUNNEL || process.env.PUBLIC_URL ? crypto.randomBytes(3).toString('hex').toUpperCase() : '');
+const ADMIN_KEY = (process.env.ADMIN_KEY || '').trim() || (TUNNEL || process.env.PUBLIC_URL ? crypto.randomBytes(3).toString('hex').toUpperCase() : '');
 // Derrière un tunnel ou un hébergeur, l'adresse réelle du visiteur est dans les en-têtes
 const TRUST_PROXY = IS_VERCEL || TUNNEL || process.env.TRUST_PROXY === '1';
 
@@ -135,6 +135,17 @@ function rateLimited(req, key, max = 30, windowMs = 60000) {
   return b.n > max;
 }
 
+/** Clé organisateur (création de tournois) : null si elle est bonne ou inutile, sinon l'erreur à renvoyer. */
+function checkKey(req) {
+  if (!ADMIN_KEY || isLocalRequest(req)) return null;
+  const given = String(req.headers['x-admin-key'] || '').trim().toUpperCase();
+  if (given && safeEq(given, ADMIN_KEY.toUpperCase())) return null;
+  if (rateLimited(req, 'key', 10)) return { status: 429, body: { error: 'Trop d’essais, patientez une minute' } };
+  return given
+    ? { status: 401, body: { error: 'Clé organisateur incorrecte', code: 'admin_key_wrong' } }
+    : { status: 401, body: { error: 'Clé organisateur requise pour créer un tournoi', code: 'admin_key' } };
+}
+
 const str = (v, max = 120) => String(v ?? '').trim().slice(0, max);
 
 // ------------------------------------------------------------------ API
@@ -153,14 +164,19 @@ async function api(req, res, url) {
     return;
   }
 
+  // Vérifier la clé organisateur sans rien créer (l'application la contrôle dès la saisie)
+  if (parts[0] === 'key' && method === 'POST') {
+    if (IS_VERCEL && !ADMIN_KEY) return send(res, 503, { error: 'Ajoutez la variable ADMIN_KEY dans les réglages du projet Vercel, puis redéployez.' });
+    const keyErr = checkKey(req);
+    return keyErr ? send(res, keyErr.status, keyErr.body) : send(res, 200, { ok: true });
+  }
+
   if (parts[0] === 'tournaments' && method === 'GET') return send(res, 200, await listAll());
 
   if (parts[0] === 'tournaments' && method === 'POST') {
     if (IS_VERCEL && !ADMIN_KEY) return send(res, 503, { error: 'Ajoutez la variable ADMIN_KEY dans les réglages du projet Vercel pour pouvoir créer des tournois.' });
-    if (ADMIN_KEY && !isLocalRequest(req) && !safeEq(String(req.headers['x-admin-key'] || '').toUpperCase(), ADMIN_KEY.toUpperCase())) {
-      if (rateLimited(req, 'key', 10)) return send(res, 429, { error: 'Trop d’essais, patientez une minute' });
-      return send(res, 401, { error: 'Clé organisateur requise pour créer un tournoi', code: 'admin_key' });
-    }
+    const keyErr = checkKey(req);
+    if (keyErr) return send(res, keyErr.status, keyErr.body);
     const t = await readBody(req);
     if (!t.id || !/^[a-z0-9_-]{3,40}$/i.test(t.id)) return send(res, 400, { error: 'Identifiant invalide' });
     if (await load(t.id)) return send(res, 409, { error: 'Ce tournoi existe déjà' });
