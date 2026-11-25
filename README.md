@@ -16,6 +16,11 @@ npm run en-ligne     # accessible en 4G depuis tous les téléphones (recommand�
 npm start            # réseau local uniquement (Wi-Fi)
 ```
 
+## Mettre en ligne
+
+- **Pour faire tester l’équipe ou ouvrir les inscriptions** : déploiement sur **Vercel**, avec une base Redis Upstash gratuite. Tout est prêt (`vercel.json`, `api/`) ; voir [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md).
+- **Le jour J** : l’ordinateur du gymnase, avec `npm run en-ligne:tailscale` (adresse fixe, QR imprimables à l’avance) ou `npm run en-ligne` (Cloudflare).
+
 ## Le jour J, sans Wi-Fi au gymnase
 
 Chacun utilise **la 4G de son propre téléphone** : personne n’a à se connecter à un réseau.
