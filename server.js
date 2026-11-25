@@ -9,6 +9,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { pickStorage } from './storage.js';
 import { charityTotals, issueCard, cardSale, findCard, blankCards, cancelSale } from './public/js/money.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -16,57 +17,39 @@ const PUBLIC = path.join(ROOT, 'public');
 const DATA = process.env.DATA_DIR || path.join(ROOT, 'data');
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
-// Mode en ligne : adresse publique fixe (hébergement) ou tunnel Cloudflare depuis l'ordinateur du gymnase
-const TUNNEL = process.argv.includes('--tunnel') || process.env.TUNNEL === '1';
+// Hébergement Vercel : fonctions sans état, pas de connexion permanente (les pages se rafraîchissent toutes seules)
+const IS_VERCEL = !!process.env.VERCEL;
+// Mode en ligne : adresse publique fixe (hébergement) ou tunnel depuis l'ordinateur du gymnase
+const TAILSCALE = process.argv.includes('--tailscale') || process.env.TUNNEL === 'tailscale';
+const TUNNEL = TAILSCALE || process.argv.includes('--tunnel') || process.env.TUNNEL === '1';
 let publicUrl = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
-const ONLINE = () => TUNNEL || !!publicUrl;
+const ONLINE = () => IS_VERCEL || TUNNEL || !!publicUrl;
 // Clé organisateur : protège la création de tournois quand l'application est accessible depuis Internet
 const ADMIN_KEY = process.env.ADMIN_KEY || (TUNNEL || process.env.PUBLIC_URL ? crypto.randomBytes(3).toString('hex').toUpperCase() : '');
 // Derrière un tunnel ou un hébergeur, l'adresse réelle du visiteur est dans les en-têtes
-const TRUST_PROXY = TUNNEL || process.env.TRUST_PROXY === '1';
+const TRUST_PROXY = IS_VERCEL || TUNNEL || process.env.TRUST_PROXY === '1';
 
-fs.mkdirSync(DATA, { recursive: true });
+const storage = pickStorage(DATA);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 
 // ------------------------------------------------------------------ stockage
-const cache = new Map();
-const file = (id) => path.join(DATA, `${id.replace(/[^a-z0-9_-]/gi, '')}.json`);
+const load = (id) => storage.get(id);
 
-async function load(id) {
-  if (cache.has(id)) return cache.get(id);
-  try {
-    const t = JSON.parse(await fsp.readFile(file(id), 'utf8'));
-    cache.set(id, t);
-    return t;
-  } catch { return null; }
-}
+/** Conflit d'écriture (deux appareils en même temps) : la requête est rejouée sur la version à jour. */
+class Conflict extends Error {}
 
-const writing = new Map();
 async function save(t) {
-  t.version = (t.version || 0) + 1;
+  const prev = t.version || 0;
+  t.version = prev + 1;
   t.updatedAt = new Date().toISOString();
-  cache.set(t.id, t);
-  // écriture atomique, sérialisée par tournoi
-  const prev = writing.get(t.id) || Promise.resolve();
-  const p = prev.then(async () => {
-    const tmp = file(t.id) + '.tmp';
-    await fsp.writeFile(tmp, JSON.stringify(t));
-    await fsp.rename(tmp, file(t.id));
-  }).catch((e) => console.error('Écriture impossible', e));
-  writing.set(t.id, p);
+  if (!(await storage.put(t, prev))) { t.version = prev; throw new Conflict('Conflit d’écriture'); }
   broadcast({ type: 'update', id: t.id, version: t.version });
   return t;
 }
 
 async function listAll() {
-  const files = (await fsp.readdir(DATA)).filter((f) => f.endsWith('.json'));
-  const out = [];
-  for (const f of files) {
-    const t = await load(f.slice(0, -5));
-    if (t) out.push(summary(t));
-  }
-  return out.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return (await storage.list()).map(summary).sort((x, y) => (x.date || '').localeCompare(y.date || ''));
 }
 
 const summary = (t) => ({ id: t.id, name: t.name, date: t.date, venue: t.venue, theme: t.theme, teams: t.teams.filter((x) => x.status === 'confirmed').length, maxTeams: t.registration?.maxTeams, courts: t.courts.length, format: t.format?.type, version: t.version, fee: t.registration?.fee || 0, open: !!t.registration?.open });
@@ -117,9 +100,16 @@ function send(res, code, body, headers = {}) {
 }
 
 async function readBody(req, limit = 2_000_000) {
+  if (req._body !== undefined) return structuredClone(req._body); // requête rejouée après un conflit
+  if (IS_VERCEL && req.body !== undefined) { // Vercel a déjà lu le corps de la requête
+    const b = req.body;
+    try { req._body = typeof b === 'string' ? JSON.parse(b || '{}') : Buffer.isBuffer(b) ? JSON.parse(b.toString('utf8') || '{}') : (b ?? {}); } catch { throw Object.assign(new Error('JSON invalide'), { code: 400 }); }
+    return structuredClone(req._body);
+  }
   let size = 0; const chunks = [];
   for await (const c of req) { size += c.length; if (size > limit) throw Object.assign(new Error('Corps trop volumineux'), { code: 413 }); chunks.push(c); }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw Object.assign(new Error('JSON invalide'), { code: 400 }); }
+  try { req._body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw Object.assign(new Error('JSON invalide'), { code: 400 }); }
+  return structuredClone(req._body);
 }
 
 const lanIps = () => Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
@@ -133,7 +123,7 @@ function clientIp(req) {
   return req.socket.remoteAddress;
 }
 /** Requête faite depuis l'ordinateur qui fait tourner le serveur (et pas relayée par le tunnel). */
-const isLocalRequest = (req) => isLoopback(req.socket.remoteAddress) && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'];
+const isLocalRequest = (req) => !IS_VERCEL && isLoopback(req.socket?.remoteAddress) && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'];
 
 const rateBucket = new Map();
 function rateLimited(req, key, max = 30, windowMs = 60000) {
@@ -152,8 +142,9 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // sans "api"
   const method = req.method;
 
-  if (parts[0] === 'ping') return send(res, 200, { ok: true, server: true, lan: lanIps(), port: PORT, time: Date.now(), publicUrl, online: ONLINE(), keyRequired: !!ADMIN_KEY && !isLocalRequest(req) });
+  if (parts[0] === 'ping') return send(res, 200, { ok: true, server: true, lan: lanIps(), port: PORT, time: Date.now(), publicUrl, online: ONLINE(), realtime: !IS_VERCEL, hosted: IS_VERCEL, keyRequired: IS_VERCEL || (!!ADMIN_KEY && !isLocalRequest(req)) });
 
+  if (parts[0] === 'events' && IS_VERCEL) return send(res, 204, '');
   if (parts[0] === 'events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write('retry: 3000\n\n');
@@ -165,6 +156,7 @@ async function api(req, res, url) {
   if (parts[0] === 'tournaments' && method === 'GET') return send(res, 200, await listAll());
 
   if (parts[0] === 'tournaments' && method === 'POST') {
+    if (IS_VERCEL && !ADMIN_KEY) return send(res, 503, { error: 'Ajoutez la variable ADMIN_KEY dans les réglages du projet Vercel pour pouvoir créer des tournois.' });
     if (ADMIN_KEY && !isLocalRequest(req) && !safeEq(String(req.headers['x-admin-key'] || '').toUpperCase(), ADMIN_KEY.toUpperCase())) {
       if (rateLimited(req, 'key', 10)) return send(res, 429, { error: 'Trop d’essais, patientez une minute' });
       return send(res, 401, { error: 'Clé organisateur requise pour créer un tournoi', code: 'admin_key' });
@@ -178,6 +170,8 @@ async function api(req, res, url) {
   }
 
   if (parts[0] !== 't' || !parts[1]) return send(res, 404, { error: 'Introuvable' });
+  // Version seule : les pages hébergées sur Vercel la consultent toutes les quelques secondes
+  if (parts[2] === 'v' && method === 'GET') return send(res, 200, { version: await storage.version(parts[1]) });
   const t = await load(parts[1]);
   if (!t) return send(res, 404, { error: 'Tournoi introuvable' });
   const action = parts[2];
@@ -195,8 +189,7 @@ async function api(req, res, url) {
 
   if (!action && method === 'DELETE') {
     if (!isAdmin(req, t)) return send(res, 401, { error: 'Code organisateur incorrect' });
-    cache.delete(t.id);
-    await fsp.rm(file(t.id), { force: true });
+    await storage.remove(t.id);
     broadcast({ type: 'deleted', id: t.id });
     return send(res, 200, { ok: true });
   }
@@ -350,13 +343,14 @@ async function api(req, res, url) {
       players: (Array.isArray(b.players) ? b.players : []).map((p) => str(p, 60)).filter(Boolean).slice(0, 20),
       comment: str(b.comment, 300),
       status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed',
-      payment: (r.fee || 0) > 0 ? 'unpaid' : 'free',
+      payment: (r.fee || 0) > 0 || (r.barCard?.enabled && b.barOption) ? 'unpaid' : 'free',
+      barOption: !!(t.registration?.barCard?.enabled && b.barOption),
       checkedIn: false, source: 'online', level: Math.min(3, Math.max(1, +b.level || 2)), pin: String(1000 + crypto.randomInt(9000)), createdAt: new Date().toISOString(),
       ref: `${t.id.slice(0, 3).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
     };
     t.teams.push(team);
     await save(t);
-    return send(res, 201, { ok: true, team: { id: team.id, name: team.name, status: team.status, ref: team.ref, payment: team.payment, pin: team.pin, players: team.players } });
+    return send(res, 201, { ok: true, team: { id: team.id, name: team.name, status: team.status, ref: team.ref, payment: team.payment, pin: team.pin, players: team.players, barOption: team.barOption } });
   }
 
   return send(res, 404, { error: 'Introuvable' });
@@ -399,18 +393,25 @@ async function serveStatic(req, res, url) {
   } catch { send(res, 404, 'Introuvable'); }
 }
 
-const server = http.createServer(async (req, res) => {
+/** Point d'entrée commun : serveur Node (ordinateur) et fonction Vercel. */
+export async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
   try {
-    if (url.pathname.startsWith('/api/')) return await api(req, res, url);
+    if (url.pathname.startsWith('/api/')) {
+      for (let attempt = 0; ; attempt++) {
+        try { return await api(req, res, url); }
+        catch (e) { if (!(e instanceof Conflict) || attempt >= 6) throw e; await new Promise((r) => setTimeout(r, 20 + Math.random() * 60)); }
+      }
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Méthode non autorisée');
     return await serveStatic(req, res, url);
   } catch (e) {
+    if (e instanceof Conflict) return send(res, 503, { error: 'Serveur très sollicité, réessayez' });
     if (!res.headersSent) send(res, e.code && e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message || 'Erreur serveur' });
   }
-});
+}
 
-server.listen(PORT, HOST, () => {
+if (!IS_VERCEL) http.createServer(handle).listen(PORT, HOST, () => {
   const ips = lanIps();
   console.log('\n  🏐  Rotation : serveur prêt\n');
   console.log(`  Sur cet ordinateur : http://localhost:${PORT}`);
@@ -418,7 +419,7 @@ server.listen(PORT, HOST, () => {
   if (publicUrl) console.log(`\n  🌍 Adresse publique : ${publicUrl}`);
   if (TUNNEL) startTunnel();
   if (ADMIN_KEY) console.log(`\n  🔑 Clé organisateur (pour créer un tournoi depuis un autre appareil) : ${ADMIN_KEY}`);
-  console.log(`\n  Données : ${DATA}\n`);
+  console.log(`\n  Données : ${storage.kind === 'redis' ? 'base Redis (Upstash)' : DATA}\n`);
 });
 
 /**
@@ -427,6 +428,7 @@ server.listen(PORT, HOST, () => {
  * - avec TUNNEL_TOKEN (tunnel nommé) et PUBLIC_URL : adresse fixe, QR codes imprimables à l'avance.
  */
 function startTunnel() {
+  if (TAILSCALE) return startTailscale();
   const bin = process.env.CLOUDFLARED || 'cloudflared';
   const args = process.env.TUNNEL_TOKEN
     ? ['tunnel', '--no-autoupdate', 'run', '--token', process.env.TUNNEL_TOKEN]
@@ -450,6 +452,40 @@ function startTunnel() {
   const stop = () => { try { child.kill(); } catch { /* */ } process.exit(0); };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+}
+
+/**
+ * Tailscale Funnel : adresse publique https fixe (https://ordinateur.nom-du-tailnet.ts.net),
+ * donc des QR codes imprimables à l'avance. Il faut avoir activé Funnel une fois dans la console Tailscale.
+ */
+function startTailscale() {
+  const bin = process.env.TAILSCALE || 'tailscale';
+  console.log('  ⏳ Ouverture de Tailscale Funnel…');
+  let child;
+  try { child = spawn(bin, ['funnel', String(PORT)], { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tailscaleMissing(); }
+  child.on('error', tailscaleMissing);
+  const onData = (buf) => {
+    const txt = String(buf);
+    const m = txt.match(/https:\/\/[a-z0-9.-]+\.ts\.net/i);
+    if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
+      publicUrl = m[0];
+      console.log(`\n  🌍 En ligne (adresse fixe) : ${publicUrl}\n     Les QR codes l'utilisent : vous pouvez les imprimer à l'avance.\n`);
+      broadcast({ type: 'net' });
+    }
+    if (/funnel is not enabled|not allowed|access denied|requires/i.test(txt)) console.log(`  ⚠️  ${txt.trim()}\n     Activez Funnel pour cet ordinateur dans la console Tailscale (Access controls), puis relancez.`);
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('exit', (code) => { if (code) console.log(`  ⚠️  Tailscale Funnel s'est arrêté (code ${code}).`); });
+  const stop = () => { try { child.kill(); } catch { /* */ } process.exit(0); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+}
+
+function tailscaleMissing() {
+  console.log(`
+  ⚠️  La commande « tailscale » est introuvable : ouvrez l'application Tailscale (connectée), ou utilisez « npm run en-ligne » (Cloudflare).
+`);
 }
 
 function tunnelMissing() {

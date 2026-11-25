@@ -94,7 +94,7 @@ const I = {
   qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>',
 };
 export const icon = (n) => raw(`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] || ''}</svg>`);
-export const logo = raw(`<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="#FBD600"/><path d="M16 2c4.5 4 6 10 4 17M3 12c6-1.5 12 0 17 4.5M8 28c1.5-6 6-11 13-13" fill="none" stroke="#0F2A17" stroke-width="2.2" stroke-linecap="round"/></svg>`);
+export const logo = raw(`<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="#FFFFFF"/><path d="M16 2c4.5 4 6 10 4 17M3 12c6-1.5 12 0 17 4.5M8 28c1.5-6 6-11 13-13" fill="none" stroke="#0B6E2E" stroke-width="2.2" stroke-linecap="round"/></svg>`);
 
 // ------------------------------------------------------------------ formatage
 export const sportOf = (court) => SPORTS[court?.sport] || SPORTS.autre;

@@ -99,7 +99,7 @@ function telethon() {
       format: { type: 'roundrobin', legs: 2, finalsTop: 2, thirdPlace: false },
       scoring: time(8),
       referees: 'teams',
-      registration: { open: true, maxTeams: 7, minPlayers: 5, maxPlayers: 10, fee: 5, feeMode: 'player', paymentUrl: '', paymentProvider: 'onsite', deadline: '', requireValidation: false },
+      registration: { open: true, maxTeams: 7, minPlayers: 5, maxPlayers: 10, fee: 5, feeMode: 'player', paymentUrl: '', paymentProvider: 'onsite', deadline: '', requireValidation: false, barCard: { enabled: true, price: 10, points: 12, per: 'team' } },
       charity: {
         enabled: true, label: 'Téléthon', goal: 1500, raised: 0, donateUrl: 'https://soutenir.afm-telethon.fr/',
         includeFees: true, includeBuvette: true, buvetteMode: 'margin', pointPledge: 0.1, pledgeSponsor: 'nos partenaires', pledgeCap: 300,
@@ -115,7 +115,7 @@ function telethon() {
       cashFund: 100,
       buvettePin: '2024',
       infos: 'Rotation toutes les 10 minutes : 8 minutes de jeu, 2 minutes pour changer de terrain. L’équipe au repos arbitre. Inscription : 5 € minimum par joueur, reversés au Téléthon.',
-      teams: mkTeams(7).map((x) => ({ ...x, players: [...x.players, 'Lina'], payment: 'unpaid', checkedIn: false })),
+      teams: mkTeams(7).map((x, i) => ({ ...x, players: [...x.players, 'Lina'], payment: 'unpaid', checkedIn: false, barOption: i % 2 === 0 })),
     });
   }
 }
@@ -148,7 +148,7 @@ function buildOther(kind) {
       date: nextSaturday(), startTime: '21:00', endTime: '00:00', slotMinutes: 12,
       venue: 'Gymnase', address: '',
       organizer: 'Rambouillet Volleyball', contact: 'contact@exemple.fr',
-      theme: '#D4FF00',
+      theme: '#064A01',
       courts: [0, 1, 2].map((i) => ({ id: `c${i + 1}`, name: `Terrain ${i + 1}`, sport: 'volley', color: COURT_COLORS[i], token: uid(10) })),
       format: { type: 'levels', poolSize: 3, placement: true },
       scoring: { ...SCORING_PRESETS['time-10-21'], preset: 'time-10-21' },

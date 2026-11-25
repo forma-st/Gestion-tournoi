@@ -118,8 +118,8 @@ function bm(ctx, m, me) {
   const court = t.courts.find((c) => c.id === m.courtId);
   return html`<div class="bm ${m.status === 'live' ? 'live' : ''}">
     <div class="bh"><span>${m.id.endsWith('3P') ? 'Petite finale' : ''}${court ? ` ${court.name}` : ''}</span><span>${m.slot != null ? matchTime(t, m) : ''}</span></div>
-    <div class="bt ${s.winner && s.winner === s.a ? 'w' : ''} ${s.tbdA ? 'tbd' : ''}" ${s.a && s.a === me ? raw('style="background:#FFF8E1"') : ''}><span>${s.nameA}</span><span class="s">${valA ?? ''}</span></div>
-    <div class="bt ${s.winner && s.winner === s.b ? 'w' : ''} ${s.tbdB ? 'tbd' : ''}" ${s.b && s.b === me ? raw('style="background:#FFF8E1"') : ''}><span>${s.nameB}</span><span class="s">${valB ?? ''}</span></div>
+    <div class="bt ${s.winner && s.winner === s.a ? 'w' : ''} ${s.tbdA ? 'tbd' : ''}" ${s.a && s.a === me ? raw('style="background:#EEF7EF"') : ''}><span>${s.nameA}</span><span class="s">${valA ?? ''}</span></div>
+    <div class="bt ${s.winner && s.winner === s.b ? 'w' : ''} ${s.tbdB ? 'tbd' : ''}" ${s.b && s.b === me ? raw('style="background:#EEF7EF"') : ''}><span>${s.nameB}</span><span class="s">${valB ?? ''}</span></div>
   </div>`;
 }
 
@@ -127,7 +127,7 @@ export function podiumView(ctx) {
   const p = finalPodium(ctx.t, ctx.resolved);
   if (!p.length) return '';
   const medals = ['🥇', '🥈', '🥉'];
-  return html`<div class="card" style="background:var(--ink);color:#fff">
+  return html`<div class="card dark" style="background:var(--ink);color:#fff">
     <h3 style="color:var(--ball)">Podium</h3>
     <div class="grid3">${p.map((id, i) => html`<div><div style="font-size:2rem">${medals[i]}</div><div class="num" style="font-size:1.6rem">${teamName(ctx.t, id)}</div></div>`)}</div>
   </div>`;

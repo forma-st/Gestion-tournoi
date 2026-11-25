@@ -50,7 +50,8 @@ export const SPORTS = {
   autre: { label: 'Autre', icon: '🏅' },
 };
 
-export const COURT_COLORS = ['#F5B700', '#00A6D6', '#F2545B', '#3BB273', '#8E6CEF', '#FF8C42'];
+// Couleurs des terrains : verts du club, faciles à distinguer de loin
+export const COURT_COLORS = ['#0B6E2E', '#00897B', '#5A7D3A', '#2F5D50', '#3B8F5A', '#4E6E5D'];
 
 /** Règles de score effectives d'un match : celles du terrain si surchargées, sinon celles du tournoi. */
 export function scoringFor(t, match) {
@@ -771,7 +772,7 @@ export function newTournament(over = {}) {
     contact: '',
     description: '',
     tagline: '',
-    theme: '#F5B700',
+    theme: '#0B6E2E',
     courts: [
       { id: 'c1', name: 'Terrain 1', sport: 'volley', color: COURT_COLORS[0], token: uid(10) },
       { id: 'c2', name: 'Terrain 2', sport: 'volley', color: COURT_COLORS[1], token: uid(10) },

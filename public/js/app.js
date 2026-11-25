@@ -47,8 +47,9 @@ export function go(hash) { if (location.hash !== hash) location.hash = hash; els
 /** Contexte commun à toutes les vues. */
 async function loadCtx(route) {
   const id = route.params[0];
-  if (!id || route.name === 'new') return { route };
+  if (!id || route.name === 'new') { store.watch(null); return { route }; }
   const t = await store.get(id);
+  store.watch(t ? id : null);
   if (!t) return { route, missing: true };
   return { route, t, ...resolve(t) };
 }

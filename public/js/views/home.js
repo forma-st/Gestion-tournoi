@@ -9,9 +9,9 @@ import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionR
 export async function homeView() {
   const list = await store.list();
   const demoCourts = [
-    { c: '#F5B700', light: true, s: '🏐 Volley', a: 'Les Smasheurs', b: 'Block Party', pa: 6, pb: 4, t: '08:12' },
-    { c: '#00A6D6', s: '⚽ Football', a: 'Filet Mignon', b: 'Ace Ventura', pa: 2, pb: 2, t: '05:40' },
-    { c: '#F2545B', s: '🏀 Basket', a: 'Les Manchettes', b: 'Service Gagnant', pa: 14, pb: 9, t: '10:03' },
+    { c: '#0B6E2E', s: '🏐 Volley', a: 'Les Smasheurs', b: 'Block Party', pa: 6, pb: 4, t: '08:12' },
+    { c: '#00897B', s: '⚽ Football', a: 'Filet Mignon', b: 'Ace Ventura', pa: 2, pb: 2, t: '05:40' },
+    { c: '#5A7D3A', s: '🏀 Basket', a: 'Les Manchettes', b: 'Service Gagnant', pa: 14, pb: 9, t: '10:03' },
   ];
   return {
     title: '',

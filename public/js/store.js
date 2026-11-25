@@ -23,13 +23,17 @@ export const store = {
   publicUrl: '',
   online: false,
   keyRequired: false,
+  realtime: true,
+  hosted: false,
+  watching: null,
+  lastVer: {},
 
   async ping() {
     try {
       const r = await fetch('api/ping', { cache: 'no-store' });
       const j = r.ok ? await r.json() : null;
       if (j?.time) clock.offset = j.time - Date.now();
-      if (j?.server) { this.mode = 'server'; this.lan = j.lan || []; this.publicUrl = j.publicUrl || ''; this.online = !!j.online; this.keyRequired = !!j.keyRequired; }
+      if (j?.server) { this.mode = 'server'; this.lan = j.lan || []; this.publicUrl = j.publicUrl || ''; this.online = !!j.online; this.keyRequired = !!j.keyRequired; this.realtime = j.realtime !== false; this.hosted = !!j.hosted; }
     } catch { /* pas de serveur : mode local */ }
   },
 
@@ -44,7 +48,28 @@ export const store = {
     return this;
   },
 
+  /** Tournoi affiché à l'écran : c'est lui qu'on surveille quand il n'y a pas de connexion permanente. */
+  watch(id) { this.watching = id || null; },
+
+  /** Hébergement sans connexion permanente (Vercel) : on vérifie la version toutes les 3 secondes. */
+  startPolling() {
+    if (this.polling) return;
+    this.polling = setInterval(async () => {
+      const id = this.watching;
+      if (!id || document.hidden) return;
+      try {
+        const r = await fetch(`api/t/${encodeURIComponent(id)}/v`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const { version } = await r.json();
+        if (!this.online) { this.online = true; emit({ type: 'net' }); this.flush(); }
+        if (this.lastVer[id] != null && version != null && version !== this.lastVer[id]) { this.lastVer[id] = version; emit({ type: 'update', id }); }
+        else if (version != null) this.lastVer[id] = version;
+      } catch { if (this.online) { this.online = false; emit({ type: 'net' }); } }
+    }, 3000);
+  },
+
   connect() {
+    if (!this.realtime) return this.startPolling();
     if (!('EventSource' in self)) return;
     const es = new EventSource('api/events');
     es.onmessage = (e) => {
@@ -89,6 +114,7 @@ export const store = {
       try {
         const t = await this.api(`t/${id}`, {}, id);
         LS.set(`rot:cache:${id}`, t);
+        this.lastVer[id] = t.version;
         return this.applyOutbox(t);
       } catch (e) {
         if (e.status === 404) return null;
@@ -139,6 +165,7 @@ export const store = {
       try {
         const saved = await this.api(`t/${id}`, { method: 'PUT', body: JSON.stringify({ baseVersion: cur.version, doc: res }) }, id);
         LS.set(`rot:cache:${id}`, saved);
+        this.lastVer[id] = saved.version;
         return saved;
       } catch (e) {
         if (e.status !== 409) throw e;
@@ -291,7 +318,7 @@ export const store = {
       const team = {
         id: Math.random().toString(36).slice(2, 8), pin: String(1000 + Math.floor(Math.random() * 9000)),
         name: data.name.trim(), captain: data.captain, email: data.email, phone: data.phone, players: data.players || [], level: +data.level || 2, comment: data.comment,
-        status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed', payment: r.fee > 0 ? 'unpaid' : 'free',
+        status: full ? 'waitlist' : r.requireValidation ? 'pending' : 'confirmed', payment: r.fee > 0 || (r.barCard?.enabled && data.barOption) ? 'unpaid' : 'free', barOption: !!(r.barCard?.enabled && data.barOption),
         checkedIn: false, source: 'online', createdAt: new Date().toISOString(), ref: `${t.id.slice(0, 3).toUpperCase()}-${Math.random().toString(16).slice(2, 6).toUpperCase()}`,
       };
       t.teams.push(team);
@@ -319,7 +346,7 @@ export const store = {
   /** Comment les téléphones joignent l'application. */
   reach() {
     if (this.mode === 'local') return 'local';
-    if (this.publicUrl || !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname)) return 'internet';
+    if (this.hosted || this.publicUrl || !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname)) return 'internet';
     return 'lan';
   },
   setBaseUrl(v) { LS.set('rot:baseUrl', v || ''); },
