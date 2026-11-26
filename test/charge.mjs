@@ -69,7 +69,13 @@ function viewer(id, stopAt) {
     const schedule = () => { if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, Math.max(0, 700 - (Date.now() - last))); };
     const req = lib.get(u, { agent: false }, (res) => {
       if (res.statusCode === 204) { // hébergement sans connexion permanente : on interroge la version
-        const iv = setInterval(async () => { const r = await request('GET', `api/t/${id}/v`); if (r.json?.version !== undefined) schedule(); }, 3000);
+        // comme un téléphone : on interroge la version, puis on relit cette version précise (mise en cache par le CDN)
+        let seen = null;
+        const iv = setInterval(async () => {
+          const r = await request('GET', `api/t/${id}/v`);
+          const v = r.json?.version;
+          if (v != null && v !== seen) { seen = v; const d = await request('GET', `api/t/${id}/pub/${v}`); if (d.status === 200) stats.doc.push(d.ms); }
+        }, 3000);
         setTimeout(() => { clearInterval(iv); resolve(); }, stopAt - Date.now());
         return;
       }

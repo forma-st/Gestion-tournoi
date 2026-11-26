@@ -249,7 +249,8 @@ async function api(req, res, url) {
 
   if (parts[0] !== 't' || !parts[1]) return send(res, 404, { error: 'Introuvable' });
   // Version seule : les pages hébergées sur Vercel la consultent toutes les quelques secondes
-  if (parts[2] === 'v' && method === 'GET') return send(res, 200, { version: await storage.version(parts[1]) });
+  // Sur Vercel, le CDN sert la même réponse à tous les téléphones pendant 2 s : une requête réelle au lieu d'une par téléphone
+  if (parts[2] === 'v' && method === 'GET') return send(res, 200, { version: await storage.version(parts[1]) }, IS_VERCEL ? { 'vercel-cdn-cache-control': 'max-age=2' } : {});
   let t = await load(parts[1]);
   if (!t) return send(res, 404, { error: 'Tournoi introuvable' });
   // Ancien tournoi avec logos ou son intégrés : on les range à part une fois pour toutes
@@ -260,6 +261,14 @@ async function api(req, res, url) {
   const action = parts[2];
 
   if (!action && method === 'GET') return send(res, 200, isAdmin(req, t) ? t : publicView(t));
+
+  // Vue publique d'une version précise (joueurs, grand écran) : contenu fixe pour une adresse donnée,
+  // donc mise en cache par le CDN de Vercel → chaque version n'est lue qu'une fois, quel que soit le nombre de téléphones.
+  // Jamais de données d'organisation ici : c'est toujours la vue publique, même avec un code.
+  if (action === 'pub' && method === 'GET') {
+    const same = String(t.version) === String(parts[3] || '');
+    return send(res, 200, publicView(t), same && IS_VERCEL ? { 'vercel-cdn-cache-control': 'max-age=3600' } : {});
+  }
 
   if (!action && method === 'PUT') {
     if (!isAdmin(req, t)) return send(res, 401, { error: 'Code organisateur incorrect' });
