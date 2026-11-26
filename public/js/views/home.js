@@ -46,7 +46,7 @@ export async function homeView(ctx) {
     </div></section>
     <main class="wrap">
       <section>
-        <div class="row between"><h2>Mes tournois</h2><button class="btn" data-act="tpl" data-kind="vide">Nouveau tournoi</button></div>
+        <div class="row between"><h2>Mes tournois</h2><div class="row"><label class="btn ghost" title="Reprendre un tournoi exporté (onglet Bilan) depuis un autre ordinateur ou depuis Vercel">Importer une sauvegarde<input type="file" accept=".json,application/json" data-act="import-t" hidden></label><button class="btn" data-act="tpl" data-kind="vide">Nouveau tournoi</button></div></div>
         ${active.length ? html`<div class="tlist">${active.map(card)}</div>`
         : html`<div class="empty"><p><b>${archived.length ? 'Aucun tournoi en cours.' : 'Aucun tournoi pour l’instant.'}</b></p><p>Créez le vôtre en quelques minutes à partir d’un modèle ci-dessous.</p></div>`}
         ${archived.length ? html`<details class="section" ${showArch ? raw('open') : ''} data-arch><summary style="cursor:pointer;font-weight:600">Archives (${archived.length})</summary>
@@ -84,6 +84,26 @@ export async function homeView(ctx) {
       root.querySelector('[data-arch-q]')?.addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase();
         root.querySelectorAll('[data-arch-list] [data-tid]').forEach((el) => { el.hidden = q && !el.dataset.name.toLowerCase().includes(q); });
+      });
+      // Importer une sauvegarde (.json) : par exemple un tournoi préparé sur Vercel, repris sur le Mac le jour J
+      root.addEventListener('change', async (e) => {
+        const inp = e.target.closest('[data-act=import-t]');
+        if (!inp?.files?.[0]) return;
+        try {
+          const data = JSON.parse(await inp.files[0].text());
+          if (!data.teams || !data.matches || !data.name) throw new Error('Fichier non reconnu : choisissez une « Sauvegarde complète (.json) »');
+          const t = { ...data, version: 0, archived: false };
+          t.id = /^[a-z0-9_-]{3,40}$/i.test(data.id || '') ? data.id : `${slug(data.name)}-${uid(4)}`;
+          t.adminPin ||= String(1000 + Math.floor(Math.random() * 9000));
+          try { await createTournament(t); }
+          catch (err) {
+            if (err.status !== 409) throw err;
+            t.id = `${t.id.slice(0, 34)}-${uid(4)}`; // déjà présent ici : on l'importe à côté, sans rien écraser
+            await createTournament(t);
+          }
+          toast(`« ${t.name} » importé · code organisateur ${t.adminPin}`, 'ok');
+          location.hash = `#/admin/${t.id}`;
+        } catch (err) { toast(err.message, 'err'); }
       });
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act=admin-key]')) { await askAdminKey(); return ctx.rerender(); }

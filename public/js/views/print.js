@@ -59,6 +59,45 @@ export async function view(ctx) {
         <div class="stack"><div class="qr" style="width:260px;justify-self:center">${qrSvg(`${base}#/t/${t.id}`)}</div><b style="text-align:center;font-size:1.3rem">Vos matchs sur votre téléphone</b>
           <ol class="steps-list" style="font-size:1.05rem">${appSteps(t).map((s) => html`<li><b>${s.title}</b>${s.text}</li>`)}</ol></div>
       </div></section>`;
+  } else if (kind === 'jourj') {
+    const sec = (title, items) => html`<section class="jj"><h2>${title}</h2><ul>${items.map((x) => html`<li>${raw(x)}</li>`)}</ul></section>`;
+    body = html`<div class="jourj" style="max-width:1000px;margin:0 auto;padding:0 16px">
+      <h1>${t.name} · fiche Jour J</h1>
+      <p class="hint">À imprimer et à garder à la table de marque. Adresse des joueurs : <b>${base}</b> · code organisateur : <b>${t.adminPin}</b> · code bénévole : <b>${t.volunteerPin || '—'}</b></p>
+      <div class="grid2" style="align-items:start">
+      <div>
+      ${sec('La veille', [
+        'Mac <b>branché sur secteur</b>, mises à jour macOS faites ou reportées.',
+        'Lancer le serveur (<code>lancer-tournoi.command</code>) puis ouvrir l’adresse affichée <b>depuis un téléphone en 4G</b> (Wi-Fi coupé) : le portail doit s’ouvrir.',
+        'Imprimer : affiches QR des terrains, affiche des règles, <b>feuilles de match papier</b> (toutes) et 5 feuilles vierges.',
+        'Faire une rotation d’essai : « Lancer la rotation », la trompe sonne à la fin du chrono, un score saisi par QR apparaît sur le grand écran.',
+      ])}
+      ${sec('Sur place, avant le premier match', [
+        'Mac sur secteur, partage de connexion 4G (ou box) actif, <b>fenêtre du serveur ouverte</b> : ne pas la fermer.',
+        'Sur le Mac, ouvrir l’administration et le grand écran avec <b>http://localhost:8080</b> (pas l’adresse ts.net) : ils continuent même si Internet coupe. Les QR codes affichés gardent l’adresse publique.',
+        'Grand écran : double-cliquer pour le plein écran, puis cliquer <b>« Activer le son »</b>.',
+        'Vérifier le voyant en haut : <b>vert</b> = à jour.',
+        'Coller les affiches QR sur les poteaux et tester un QR avec un téléphone.',
+      ])}
+      ${sec('Le voyant de connexion', [
+        '<b>Vert</b> « En ligne » : tout est à jour.',
+        '<b>Orange</b> « Connexion lente » : pas de nouvelles du serveur depuis 30 s ; ça repart tout seul en général.',
+        '<b>Rouge</b> « Hors ligne · N en attente » : les points sont <b>gardés sur le téléphone</b> et partent seuls au retour du réseau. Ne pas fermer la page.',
+      ])}
+      </div><div>
+      ${sec('Si ça coince', [
+        '<b>Un téléphone bloque</b> : recharger la page ; les points en attente ne sont pas perdus.',
+        '<b>La 4G du Mac tombe</b> : le grand écran (ouvert en localhost sur le Mac) continue ; les joueurs ne joignent plus le site → <b>feuilles papier</b>, puis scores saisis dans <i>Matchs</i> (bouton Score) dès que possible.',
+        '<b>Le serveur s’arrête</b> : il redémarre tout seul (fenêtre du lanceur). Sinon, double-cliquer à nouveau sur <code>lancer-tournoi.command</code> : les données sont sur le disque.',
+        '<b>Le Mac redémarre</b> : relancer le serveur ; tout est repris là où c’était. L’adresse Tailscale ne change pas, les QR restent bons.',
+        '<b>Erreur de saisie</b> : onglet <i>Matchs</i> → Score → corriger.',
+        '<b>Retour en arrière</b> : <i>Bilan & export</i> → « Restaurer une sauvegarde » avec un fichier du dossier <code>data/sauvegardes</code> (une copie toutes les 2 minutes).',
+      ])}
+      ${sec('Après le tournoi', [
+        '<i>Bilan & export</i> : « Sauvegarde complète (.json) » et export Excel.',
+        'Archiver le tournoi, puis arrêter le serveur (Ctrl+C dans sa fenêtre).',
+      ])}
+      </div></div></div>`;
   } else if (kind === 'cartes') {
     const blank = (t.cards || []).filter((c) => !c.ops?.length);
     body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${blank.length} cartes vierges à découper</h2>

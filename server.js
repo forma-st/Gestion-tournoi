@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { pickStorage } from './storage.js';
 import { charityTotals, issueCard, cardSale, findCard, blankCards, cancelSale } from './public/js/money.js';
@@ -36,6 +37,43 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 // ------------------------------------------------------------------ stockage
 const load = (id) => storage.get(id);
 
+// Médias (logos des partenaires, son de fin de temps) : stockés à part et servis avec un cache long.
+// Le tournoi ne garde que leur adresse : il reste léger (≈ 25 Ko) et se recharge vite à chaque point marqué.
+const DATA_URL = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
+async function stashMedia(dataUrl) {
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl;
+  if (dataUrl.length > 1_500_000 || !DATA_URL.test(dataUrl)) throw Object.assign(new Error('Fichier trop lourd ou illisible'), { code: 413 });
+  const hash = crypto.createHash('sha256').update(dataUrl).digest('hex').slice(0, 32);
+  await storage.putMedia(hash, dataUrl);
+  return `api/media/${hash}`;
+}
+/** Remplace les médias intégrés (data URL) par leur adresse. Renvoie true si le tournoi a changé. */
+async function extractMedia(t) {
+  let changed = false;
+  for (const sp of Array.isArray(t.sponsors) ? t.sponsors : []) {
+    if (typeof sp?.logo === 'string' && sp.logo.startsWith('data:')) { sp.logo = await stashMedia(sp.logo); changed = true; }
+  }
+  if (typeof t.sound?.data === 'string' && t.sound.data.startsWith('data:')) { t.sound.data = await stashMedia(t.sound.data); changed = true; }
+  return changed;
+}
+
+const cleanSets = (a) => (Array.isArray(a) ? a : []).slice(0, 7).map((x) => [Math.max(0, Math.min(999, +x?.[0] || 0)), Math.max(0, Math.min(999, +x?.[1] || 0))]);
+/**
+ * Deux téléphones comptent le même match : chacun envoie ses sets et la version de départ (base).
+ * Si quelqu'un a marqué entre-temps, on additionne les écarts au lieu d'écraser : aucun point perdu.
+ */
+export function mergeSets(cur, base, mine) {
+  if (!base) return mine;
+  if (JSON.stringify(cur) === JSON.stringify(base)) return mine;
+  const n = Math.max(cur.length, mine.length);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const c = cur[i] || [0, 0], b = base[i] || [0, 0], m = mine[i] || b;
+    out.push([Math.max(0, Math.min(999, c[0] + m[0] - b[0])), Math.max(0, Math.min(999, c[1] + m[1] - b[1]))]);
+  }
+  return out;
+}
+
 /** Conflit d'écriture (deux appareils en même temps) : la requête est rejouée sur la version à jour. */
 class Conflict extends Error {}
 
@@ -61,7 +99,7 @@ function publicView(t) {
     adminPin: undefined,
     volunteerPin: undefined,
     courts: t.courts.map((c) => ({ ...c, token: undefined })),
-    matches: t.matches.map((m) => ({ ...m, token: undefined })),
+    matches: t.matches.map((m) => ({ ...m, token: undefined, ops: undefined })),
     messages: undefined,
     players: (t.players || []).map((p) => ({ id: p.id, name: p.name.split(' ')[0] })),
     buvettePin: undefined,
@@ -98,8 +136,12 @@ setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25000
 // ------------------------------------------------------------------ utilitaires HTTP
 function send(res, code, body, headers = {}) {
   const json = typeof body !== 'string';
-  res.writeHead(code, { 'content-type': json ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...headers });
-  res.end(json ? JSON.stringify(body) : body);
+  let out = json ? JSON.stringify(body) : body;
+  const h = { 'content-type': json ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...headers };
+  // Compression : le tournoi (JSON) passe de ≈ 25 Ko à ≈ 4 Ko, sur la 4G des joueurs ça compte
+  if (res.gzipOk && out.length > 1024) { out = zlib.gzipSync(out, { level: 5 }); h['content-encoding'] = 'gzip'; h.vary = 'accept-encoding'; }
+  res.writeHead(code, h);
+  res.end(out);
 }
 
 async function readBody(req, limit = 2_000_000) {
@@ -126,11 +168,17 @@ function clientIp(req) {
   return req.socket.remoteAddress;
 }
 /** Requête faite depuis l'ordinateur qui fait tourner le serveur (et pas relayée par le tunnel). */
-const isLocalRequest = (req) => !IS_VERCEL && isLoopback(req.socket?.remoteAddress) && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'];
+const isLocalRequest = (req) => !IS_VERCEL && isLoopback(req.socket?.remoteAddress)
+  && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'] && !req.headers['tailscale-funnel-request']
+  && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(req.headers.host || ''); // relayé par un tunnel : l'adresse est publique
 
 const rateBucket = new Map();
+setInterval(() => { const now = Date.now(); for (const [k, b] of rateBucket) if (now - b.t > 120000) rateBucket.delete(k); }, 60000).unref();
 function rateLimited(req, key, max = 30, windowMs = 60000) {
-  const k = `${key}|${clientIp(req)}`;
+  const ip = clientIp(req);
+  // Adresse inconnue (relais sans en-tête) : tous les téléphones auraient la même → limite très large
+  if (!ip || isLoopback(ip)) max *= 20;
+  const k = `${key}|${ip}`;
   const now = Date.now();
   const b = rateBucket.get(k) || { n: 0, t: now };
   if (now - b.t > windowMs) { b.n = 0; b.t = now; }
@@ -176,6 +224,16 @@ async function api(req, res, url) {
 
   if (parts[0] === 'tournaments' && method === 'GET') return send(res, 200, await listAll());
 
+  // Médias (logos, sons) : contenu fixe pour une adresse donnée → cache d'un an dans les navigateurs
+  if (parts[0] === 'media' && parts[1] && method === 'GET') {
+    const d = await storage.getMedia(parts[1]);
+    const m = d && DATA_URL.exec(d);
+    if (!m) return send(res, 404, { error: 'Média introuvable' });
+    const buf = Buffer.from(m[2], 'base64');
+    res.writeHead(200, { 'content-type': m[1], 'content-length': buf.length, 'cache-control': 'public, max-age=31536000, immutable' });
+    return res.end(buf);
+  }
+
   if (parts[0] === 'tournaments' && method === 'POST') {
     if (IS_VERCEL && !ADMIN_KEY) return send(res, 503, { error: 'Ajoutez la variable ADMIN_KEY dans les réglages du projet Vercel pour pouvoir créer des tournois.' });
     const keyErr = checkKey(req);
@@ -183,6 +241,7 @@ async function api(req, res, url) {
     const t = await readBody(req);
     if (!t.id || !/^[a-z0-9_-]{3,40}$/i.test(t.id)) return send(res, 400, { error: 'Identifiant invalide' });
     if (await load(t.id)) return send(res, 409, { error: 'Ce tournoi existe déjà' });
+    await extractMedia(t);
     t.version = 0;
     await save(t);
     return send(res, 201, t);
@@ -191,8 +250,13 @@ async function api(req, res, url) {
   if (parts[0] !== 't' || !parts[1]) return send(res, 404, { error: 'Introuvable' });
   // Version seule : les pages hébergées sur Vercel la consultent toutes les quelques secondes
   if (parts[2] === 'v' && method === 'GET') return send(res, 200, { version: await storage.version(parts[1]) });
-  const t = await load(parts[1]);
+  let t = await load(parts[1]);
   if (!t) return send(res, 404, { error: 'Tournoi introuvable' });
+  // Ancien tournoi avec logos ou son intégrés : on les range à part une fois pour toutes
+  if (method === 'GET' && (t.sound?.data?.startsWith?.('data:') || (t.sponsors || []).some((x) => x?.logo?.startsWith?.('data:')))) {
+    const copy = structuredClone(t);
+    if (await extractMedia(copy)) { try { t = await save(copy); } catch { /* conflit : ce sera fait à la prochaine lecture */ } }
+  }
   const action = parts[2];
 
   if (!action && method === 'GET') return send(res, 200, isAdmin(req, t) ? t : publicView(t));
@@ -203,6 +267,7 @@ async function api(req, res, url) {
     if (body.baseVersion !== t.version) return send(res, 409, { error: 'Version périmée', current: t });
     const next = { ...body.doc, id: t.id, version: t.version };
     if (!next.adminPin) next.adminPin = t.adminPin;
+    await extractMedia(next);
     return send(res, 200, await save(next));
   }
 
@@ -322,7 +387,11 @@ async function api(req, res, url) {
       || (team && [m.referee, b.teamA, b.teamB, m.teamA, m.teamB].includes(team.id));
     if (!ok) return send(res, 403, { error: 'Lien de feuille de match invalide' });
     if (m.status === 'done' && m.validated && !isAdmin(req, t)) return send(res, 409, { error: 'Score déjà validé par l’organisation' });
-    if (Array.isArray(b.sets)) m.sets = b.sets.slice(0, 7).map((s) => [Math.max(0, Math.min(999, +s[0] || 0)), Math.max(0, Math.min(999, +s[1] || 0))]);
+    // Envoi rejoué (réseau coupé pendant la réponse) : déjà pris en compte, on ne compte pas deux fois
+    const op = str(b.op, 40);
+    if (op && (m.ops || []).includes(op)) return send(res, 200, { ok: true, duplicate: true, match: { ...m, token: undefined, ops: undefined }, version: t.version });
+    if (Array.isArray(b.sets)) m.sets = Array.isArray(b.base) ? mergeSets(cleanSets(m.sets), cleanSets(b.base), cleanSets(b.sets)) : cleanSets(b.sets);
+    if (op) m.ops = [...(m.ops || []), op].slice(-20);
     if (['live', 'done', 'scheduled'].includes(b.status)) m.status = b.status;
     if (b.status === 'live' && !m.startedAt) m.startedAt = new Date().toISOString();
     if (b.status === 'done') { m.finishedAt = new Date().toISOString(); m.validated = !t.scoreValidation || isAdmin(req, t); }
@@ -332,7 +401,7 @@ async function api(req, res, url) {
     if (b.signatures) m.signatures = { A: str(b.signatures.A, 60), B: str(b.signatures.B, 60) };
     if (b.comment != null) m.comment = str(b.comment, 300);
     await save(t);
-    return send(res, 200, { ok: true, match: { ...m, token: undefined }, version: t.version });
+    return send(res, 200, { ok: true, match: { ...m, token: undefined, ops: undefined }, version: t.version });
   }
 
   // Inscription en ligne
@@ -409,18 +478,29 @@ async function serveStatic(req, res, url) {
   }
   const full = path.normalize(path.join(PUBLIC, p));
   if (!full.startsWith(PUBLIC)) return send(res, 403, 'Interdit');
-  try {
-    const st = await fsp.stat(full);
-    if (!st.isFile()) throw new Error();
-    const ext = path.extname(full);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.woff2' ? 'public, max-age=31536000, immutable' : 'no-cache', 'content-length': st.size });
-    fs.createReadStream(full).pipe(res);
-  } catch { send(res, 404, 'Introuvable'); }
+  let st;
+  try { st = await fsp.stat(full); if (!st.isFile()) throw new Error(); } catch { return send(res, 404, 'Introuvable'); }
+  const ext = path.extname(full);
+  const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+  const head = { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.woff2' || ext === '.mp3' ? 'public, max-age=31536000, immutable' : 'no-cache', etag };
+  if (req.headers['if-none-match'] === etag) { res.writeHead(304, head); return res.end(); }
+  const text = /^(text|application\/(json|manifest)|image\/svg)/.test(head['content-type']);
+  if (text && res.gzipOk && st.size > 1024) {
+    const key = `${full}|${etag}`;
+    let gz = gzCache.get(key);
+    if (!gz) { gz = zlib.gzipSync(await fsp.readFile(full), { level: 9 }); gzCache.set(key, gz); }
+    res.writeHead(200, { ...head, 'content-encoding': 'gzip', vary: 'accept-encoding', 'content-length': gz.length });
+    return res.end(gz);
+  }
+  res.writeHead(200, { ...head, 'content-length': st.size });
+  fs.createReadStream(full).on('error', () => res.destroy()).pipe(res);
 }
+const gzCache = new Map();
 
 /** Point d'entrée commun : serveur Node (ordinateur) et fonction Vercel. */
 export async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  res.gzipOk = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
   // Vercel peut transmettre l'adresse réécrite (/api/index?path=… ou ?id=…) : on retrouve l'adresse d'origine
   if (url.pathname === '/api/index' || url.pathname === '/api/index.js') {
     const p = url.searchParams.get('path'), id = url.searchParams.get('id');
@@ -442,7 +522,60 @@ export async function handle(req, res) {
   }
 }
 
+// ------------------------------------------------------------------ tenue sur la durée (ordinateur du gymnase)
+if (!IS_VERCEL) {
+  // Une erreur imprévue ne doit jamais arrêter le serveur en pleine soirée : on la note et on continue
+  process.on('uncaughtException', (e) => console.error(`  ⚠️  Erreur inattendue (le serveur continue) : ${e?.stack || e}`));
+  process.on('unhandledRejection', (e) => console.error(`  ⚠️  Erreur inattendue (le serveur continue) : ${e?.stack || e}`));
+}
+
+/**
+ * Sauvegardes automatiques (stockage fichiers) : toutes les 2 minutes, une copie de chaque tournoi modifié
+ * dans data/sauvegardes/<tournoi>/ (les 60 dernières sont gardées, soit 2 heures au moins).
+ */
+const BACKUP_DIR = path.join(DATA, 'sauvegardes');
+const backedUp = new Map();
+async function backupAll() {
+  if (storage.kind !== 'file') return;
+  for (const t of await storage.list()) {
+    if (backedUp.get(t.id) === t.version) continue;
+    const dir = path.join(BACKUP_DIR, t.id.replace(/[^a-z0-9_-]/gi, ''));
+    await fsp.mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    await fsp.writeFile(path.join(dir, `${stamp}-v${t.version}.json`), JSON.stringify(t));
+    backedUp.set(t.id, t.version);
+    const files = (await fsp.readdir(dir)).filter((f) => f.endsWith('.json')).sort();
+    for (const f of files.slice(0, -60)) await fsp.rm(path.join(dir, f), { force: true });
+  }
+}
+
+/** Le Mac ne se met pas en veille tant que le serveur tourne (écran compris, pour le grand écran). */
+function keepAwake() {
+  if (process.platform !== 'darwin' || process.env.NO_CAFFEINATE) return;
+  try {
+    const c = spawn('caffeinate', ['-dimsu', '-w', String(process.pid)], { stdio: 'ignore' });
+    c.on('error', () => {});
+    c.unref();
+    console.log('  ☕ Mise en veille du Mac désactivée tant que le serveur tourne.');
+  } catch { /* facultatif */ }
+}
+
+let stopping = false;
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  console.log('\n  ⏹  Arrêt : enregistrement des données…');
+  try { await storage.flush?.(); await backupAll(); } catch (e) { console.error(e); }
+  for (const c of children) { try { c.kill(); } catch { /* */ } }
+  process.exit(0);
+}
+const children = new Set();
+
 if (!IS_VERCEL) http.createServer(handle).listen(PORT, HOST, () => {
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  keepAwake();
+  setInterval(() => backupAll().catch((e) => console.error('  ⚠️  Sauvegarde impossible :', e.message)), 120000).unref();
   const ips = lanIps();
   console.log('\n  🏐  Rotation : serveur prêt\n');
   console.log(`  Sur cet ordinateur : http://localhost:${PORT}`);
@@ -450,7 +583,13 @@ if (!IS_VERCEL) http.createServer(handle).listen(PORT, HOST, () => {
   if (publicUrl) console.log(`\n  🌍 Adresse publique : ${publicUrl}`);
   if (TUNNEL) startTunnel();
   if (ADMIN_KEY) console.log(`\n  🔑 Clé organisateur (pour créer un tournoi depuis un autre appareil) : ${ADMIN_KEY}`);
-  console.log(`\n  Données : ${storage.kind === 'redis' ? 'base Redis (Upstash)' : DATA}\n`);
+  console.log(`\n  Données : ${storage.kind === 'redis' ? 'base Redis (Upstash)' : DATA}`);
+  if (storage.kind === 'file') console.log(`  Sauvegardes automatiques (toutes les 2 min) : ${BACKUP_DIR}`);
+  console.log('\n  Laissez cette fenêtre ouverte pendant tout le tournoi. Ctrl+C pour arrêter.\n');
+}).on('error', (e) => {
+  if (e.code === 'EADDRINUSE') console.error(`\n  ⚠️  Le port ${PORT} est déjà utilisé : le serveur tourne sans doute déjà dans une autre fenêtre.\n`);
+  else console.error(e);
+  process.exit(1);
 });
 
 /**
@@ -467,7 +606,9 @@ function startTunnel() {
   console.log('  ⏳ Ouverture du tunnel Cloudflare…');
   let child;
   try { child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tunnelMissing(); }
-  child.on('error', tunnelMissing);
+  children.add(child);
+  let missing = false;
+  child.on('error', () => { missing = true; tunnelMissing(); });
   const onData = (buf) => {
     const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
@@ -479,10 +620,13 @@ function startTunnel() {
   };
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
-  child.on('exit', (code) => { if (code) console.log(`  ⚠️  Le tunnel s'est arrêté (code ${code}). Vérifiez la connexion Internet puis relancez.`); });
-  const stop = () => { try { child.kill(); } catch { /* */ } process.exit(0); };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  child.on('exit', (code) => {
+    children.delete(child);
+    if (stopping || missing) return;
+    // Coupure Internet, mise en veille… : on relance le tunnel tout seul
+    console.log(`  ⚠️  Le tunnel s'est arrêté (code ${code}). Nouvel essai dans 5 secondes…${process.env.TUNNEL_TOKEN ? '' : ' (adresse rapide : elle va changer, préférez Tailscale pour des QR fixes)'}`);
+    setTimeout(startTunnel, 5000);
+  });
 }
 
 /**
@@ -494,23 +638,27 @@ function startTailscale() {
   console.log('  ⏳ Ouverture de Tailscale Funnel…');
   let child;
   try { child = spawn(bin, ['funnel', String(PORT)], { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tailscaleMissing(); }
-  child.on('error', tailscaleMissing);
+  children.add(child);
+  let missing = false;
+  child.on('error', () => { missing = true; tailscaleMissing(); });
   const onData = (buf) => {
     const txt = String(buf);
     const m = txt.match(/https:\/\/[a-z0-9.-]+\.ts\.net/i);
     if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
       publicUrl = m[0];
-      console.log(`\n  🌍 En ligne (adresse fixe) : ${publicUrl}\n     Les QR codes l'utilisent : vous pouvez les imprimer à l'avance.\n`);
+      console.log(`\n  🌍 En ligne (adresse fixe) : ${publicUrl}\n     Les QR codes l'utilisent : vous pouvez les imprimer à l'avance.\n     Sur ce Mac, ouvrez plutôt http://localhost:${PORT} (admin, grand écran) : ça continue même si Internet coupe.\n`);
       broadcast({ type: 'net' });
     }
     if (/funnel is not enabled|not allowed|access denied|requires/i.test(txt)) console.log(`  ⚠️  ${txt.trim()}\n     Activez Funnel pour cet ordinateur dans la console Tailscale (Access controls), puis relancez.`);
   };
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
-  child.on('exit', (code) => { if (code) console.log(`  ⚠️  Tailscale Funnel s'est arrêté (code ${code}).`); });
-  const stop = () => { try { child.kill(); } catch { /* */ } process.exit(0); };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  child.on('exit', (code) => {
+    children.delete(child);
+    if (stopping || missing) return;
+    console.log(`  ⚠️  Tailscale Funnel s'est arrêté (code ${code}). Nouvel essai dans 5 secondes…`);
+    setTimeout(startTailscale, 5000);
+  });
 }
 
 function tailscaleMissing() {

@@ -188,6 +188,7 @@ const PANELS = {
         <a class="btn ghost" href="#/print/${t.id}/regles" target="_blank">Affiche des règles</a>
         <a class="btn ghost" href="#/print/${t.id}/qr" target="_blank">Affiches QR des terrains</a>
         <a class="btn ghost" href="#/print/${t.id}/feuilles" target="_blank">Feuilles de match papier</a>
+        <a class="btn ghost" href="#/print/${t.id}/jourj" target="_blank">📋 Fiche Jour J (que faire si…)</a>
         <a class="btn ghost" href="#/p/${t.id}" target="_blank">Page de promotion</a>
       </div></div>`;
   },
@@ -664,6 +665,21 @@ async function onChange(ctx, e) {
   }
 }
 
+/** Sauvegarde autonome : les logos et le son (rangés à part sur le serveur) sont réintégrés dans le fichier. */
+async function withMedia(t) {
+  const copy = structuredClone(t);
+  const inline = async (url) => {
+    if (typeof url !== 'string' || !url.startsWith('api/media/')) return url;
+    try {
+      const blob = await (await fetch(url)).blob();
+      return await new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(blob); });
+    } catch { return url; }
+  };
+  for (const sp of copy.sponsors || []) sp.logo = await inline(sp.logo);
+  if (copy.sound?.data) copy.sound.data = await inline(copy.sound.data);
+  return copy;
+}
+
 async function onSubmit(ctx, e) {
   const f = e.target.dataset.form;
   if (!f) return;
@@ -836,7 +852,7 @@ async function onClick(ctx, e) {
       c.toBlob((blob) => download(`affiche-${t.id}-${b.dataset.format}.png`, blob));
       break;
     }
-    case 'export-json': download(`${t.id}-sauvegarde.json`, JSON.stringify(t, null, 1), 'application/json'); break;
+    case 'export-json': download(`${t.id}-sauvegarde.json`, JSON.stringify(await withMedia(t), null, 1), 'application/json'); break;
     case 'export-csv': download(`${t.id}-equipes.csv`, teamsCsv(t), 'text/csv;charset=utf-8'); break;
     case 'export-xls': download(`${t.id}.xls`, excelExport(ctx), 'application/vnd.ms-excel'); break;
     case 'reset-scores':

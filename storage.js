@@ -9,6 +9,8 @@ const safeId = (id) => String(id).replace(/[^a-z0-9_-]/gi, '');
 
 export function fileStorage(dir) {
   fs.mkdirSync(dir, { recursive: true });
+  const mediaDir = path.join(dir, 'media');
+  fs.mkdirSync(mediaDir, { recursive: true });
   const cache = new Map();
   const writing = new Map();
   const file = (id) => path.join(dir, `${safeId(id)}.json`);
@@ -37,6 +39,16 @@ export function fileStorage(dir) {
       return (await Promise.all(files.map((f) => store.get(f.slice(0, -5))))).filter(Boolean);
     },
     async remove(id) { cache.delete(id); await fsp.rm(file(id), { force: true }); },
+    // Médias (logos, sons) : rangés à part, adressés par leur empreinte → jamais renvoyés avec le tournoi
+    async putMedia(hash, dataUrl) {
+      const f = path.join(mediaDir, `${safeId(hash)}.txt`);
+      if (fs.existsSync(f)) return;
+      await fsp.writeFile(f + '.tmp', dataUrl);
+      await fsp.rename(f + '.tmp', f);
+    },
+    async getMedia(hash) { try { return await fsp.readFile(path.join(mediaDir, `${safeId(hash)}.txt`), 'utf8'); } catch { return null; } },
+    /** Attend la fin des écritures en cours (arrêt propre du serveur). */
+    async flush() { await Promise.all([...writing.values()]); },
   };
   return store;
 }
@@ -54,11 +66,21 @@ return 0`;
 /** Redis via l'API REST d'Upstash (intégration « Upstash for Redis » de Vercel) : aucune dépendance. */
 export function redisStorage({ url, token, prefix = 'rotation:' }) {
   const base = url.replace(/\/$/, '');
+  // Délai maximal par requête ; les lectures sont retentées une fois (une écriture ne l'est jamais :
+  // si la réponse se perd, c'est le client qui rejoue, et les saisies sont protégées contre les doublons).
   async function cmd(...args) {
-    const r = await fetch(base, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(args) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(`Base de données : ${j.error || r.status}`);
-    return j.result;
+    const read = ['GET', 'MGET', 'SMEMBERS'].includes(args[0]);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await fetch(base, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(args), signal: AbortSignal.timeout(8000) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.error) throw Object.assign(new Error(`Base de données : ${j.error || r.status}`), { db: true });
+        return j.result;
+      } catch (e) {
+        if (!read || attempt >= 1 || e.db) throw e;
+        await new Promise((ok) => setTimeout(ok, 150));
+      }
+    }
   }
   const kDoc = (id) => `${prefix}t:${safeId(id)}`;
   const kVer = (id) => `${prefix}v:${safeId(id)}`;
@@ -75,6 +97,9 @@ export function redisStorage({ url, token, prefix = 'rotation:' }) {
       return docs.filter(Boolean).map((s) => JSON.parse(s));
     },
     async remove(id) { await cmd('DEL', kDoc(id), kVer(id)); await cmd('SREM', kSet, safeId(id)); },
+    async putMedia(hash, dataUrl) { await cmd('SET', `${prefix}m:${safeId(hash)}`, dataUrl, 'NX'); },
+    async getMedia(hash) { return cmd('GET', `${prefix}m:${safeId(hash)}`); },
+    async flush() {},
   };
 }
 
