@@ -6,7 +6,7 @@ import { shell } from './shell.js';
 import { applySportRule, sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS, FORMATS } from './settings.js';
 import { compareTable } from './home.js';
 import { matchRow, courtsInPlay, courtTile, rankingsView, startTimers, STATUS, watchHorn, soundButton, onSoundClick } from './components.js';
-import { unlock, soundWanted } from '../sound.js';
+import { unlock, soundWanted, horn, useSound, checkSoundFile } from '../sound.js';
 import { posterCanvas, drawPoster } from './promo.js';
 import { adminBuvette, adminCagnotte, barActions, showCard } from './bar.js';
 import { feesSummary, teamDue, teamFee, barOption, issueTeamCard, findCard, charityTotals } from '../money.js';
@@ -174,6 +174,12 @@ const PANELS = {
       </div>
       ${(t.messages || []).length ? html`<div class="card section stack"><div class="row between"><h3 style="margin:0">Messages des équipes</h3><button class="btn ghost sm" data-act="read-all">Tout marquer comme lu</button></div>
         ${(t.messages || []).slice().reverse().slice(0, 20).map((m) => html`<div class="row" style="align-items:flex-start">${!m.read ? html`<span class="dot" style="--c:var(--loss);margin-top:7px"></span>` : ''}<div><b>${m.from}</b> <span class="muted small">${new Date(m.at).toLocaleString('fr-FR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</span><br>${m.text}</div></div>`)}</div>` : ''}
+      <div class="card section stack" id="son"><div class="row between"><h3 style="margin:0">🔊 Son de fin de temps</h3>
+          <span class="pill">${t.sound?.data ? `Son du tournoi : ${t.sound.name || 'fichier'}${t.sound.duration ? ` (${(+t.sound.duration).toFixed(1).replace(".", ",")} s)` : ''}` : 'Trompe de stade (son par défaut)'}</span></div>
+        <p class="hint" style="margin:0">Il retentit sur le grand écran et ici quand le chrono d’une rotation arrive à zéro. Fichier MP3, WAV ou OGG, 8 secondes et 400 Ko maximum.</p>
+        <div class="row"><button class="btn ghost" data-act="sound-test">▶ Écouter</button>
+          <label class="btn">Choisir le son de fin de temps<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a" data-act="sound-file" hidden></label>
+          ${t.sound?.data ? html`<button class="btn ghost" data-act="sound-reset">Revenir à la trompe par défaut</button>` : ''}</div></div>
       <div class="card section row between" style="gap:.6rem"><span>Code organisateur de ce tournoi : <b class="num" style="font-size:1.3rem">${t.adminPin}</b></span><span class="hint">À donner à un co-organisateur pour ce tournoi seulement. Votre clé organisateur générale ouvre tous les tournois.</span></div>
       <div class="card section"><h3>Liens utiles</h3><div class="row">
         <a class="btn ghost" href="#/t/${t.id}" target="_blank">Portail des joueurs</a>
@@ -613,6 +619,18 @@ async function onChange(ctx, e) {
     if (store.mode === 'local') ctx.rerender();
     return;
   }
+  if (el.dataset.act === 'sound-file' && el.files?.[0]) {
+    const file = el.files[0];
+    try {
+      if (file.size > 400_000) throw new Error('Fichier trop lourd (400 Ko maximum) : raccourcissez-le ou exportez-le en MP3');
+      const data = await new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ko(new Error('Fichier illisible')); r.readAsDataURL(file); });
+      const duration = await checkSoundFile(data);
+      await save(ctx, (d) => { d.sound = { name: file.name.replace(/\.[^.]+$/, ''), data, duration: Math.round(duration * 10) / 10 }; }, 'Nouveau son enregistré');
+      useSound(data);
+      if (await unlock()) horn();
+    } catch (err) { toast(err.message, 'err'); }
+    return ctx.rerender();
+  }
   if (el.dataset.act === 'sponsor-logo' && el.files?.[0]) {
     try { const url = await imageToDataUrl(el.files[0]); await save(ctx, (d) => { d.sponsors[+el.dataset.i].logo = url; }, 'Logo ajouté'); }
     catch (err) { toast(err.message, 'err'); }
@@ -780,6 +798,8 @@ async function onClick(ctx, e) {
     case 'rm-break': await save(ctx, (d) => { d.breaks.splice(+b.dataset.i, 1); }); rr(); break;
     case 'add-sponsor': await save(ctx, (d) => { (d.sponsors ??= []).push({ name: '', url: '' }); }); rr(); break;
     case 'rm-sponsor': await save(ctx, (d) => { d.sponsors.splice(+b.dataset.i, 1); }); rr(); break;
+    case 'sound-test': useSound(ctx.t.sound?.data); if (await unlock()) horn(); else toast('Le navigateur bloque le son', 'err'); break;
+    case 'sound-reset': await save(ctx, (d) => { delete d.sound; }, 'Retour à la trompe par défaut'); useSound(null); if (await unlock()) horn(); rr(); break;
     case 'rm-logo': await save(ctx, (d) => { delete d.sponsors[+b.dataset.i].logo; }); rr(); break;
     case 'pick-formula': await save(ctx, (d) => { d.format = { type: 'roundrobin', legs: +b.dataset.legs, finalsTop: +b.dataset.top, thirdPlace: true }; }); rr(); break;
     case 'read-all': await save(ctx, (d) => { (d.messages || []).forEach((m) => { m.read = true; }); }); rr(); break;
