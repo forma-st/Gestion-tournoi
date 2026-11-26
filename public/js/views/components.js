@@ -220,7 +220,7 @@ export const fmtClock = (ms) => { const s = Math.ceil(ms / 1000); return `${Stri
 
 export { POOL_LETTERS };
 
-/** Corne de stade à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
+/** Trompe de stade à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
 export function watchHorn(t) {
   const check = () => {
     const live = t.matches.filter((m) => m.status === 'live' && m.timer?.running);
@@ -235,7 +235,7 @@ export function watchHorn(t) {
 }
 
 /** Bouton d'activation du son (obligatoire avant toute lecture dans les navigateurs). */
-export const soundButton = (cls = '') => html`<button class="btn ghost sm ${cls}" data-act="sound" title="La corne de stade retentit à la fin du temps de chaque rotation">${soundReady() ? '🔊 Son activé' : '🔇 Activer le son'}</button>`;
+export const soundButton = (cls = '') => html`<button class="btn ghost sm ${cls}" data-act="sound" title="La trompe de stade retentit à la fin du temps de chaque rotation">${soundReady() ? '🔊 Son activé' : '🔇 Activer le son'}</button>`;
 
 /** Gestion des clics sur le bouton son : active, puis fait entendre la corne pour vérifier le volume. */
 export async function onSoundClick(e, rerender) {
