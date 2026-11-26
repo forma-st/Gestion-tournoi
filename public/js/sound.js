@@ -25,7 +25,7 @@ function shaper(amount) {
 
 /**
  * Trompe de stade (corne de but, façon patinoire) : un coup continu de 2 s, grave et cuivré.
- * Accord ample (sol 2 – si 2 – ré 3, ≈ 98 / 123 / 147 Hz, doublé à l'octave), saturation modérée,
+ * Accord ample (si 2 – ré♯ 3 – fa♯ 3, ≈ 123 / 156 / 185 Hz, doublé à l'octave), saturation modérée,
  * attaque rapide mais ronde, léger tremblement d'air, fin qui s'éteint en 0,3 s.
  */
 export function horn(dur = 2) {
@@ -37,7 +37,7 @@ export function horn(dur = 2) {
   master.gain.value = 0.7;
   master.connect(comp).connect(ctx.destination);
   // pavillon métallique : présence vers 900 Hz, pas d'aigus agressifs
-  const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 900; body.Q.value = 1; body.gain.value = 7;
+  const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 1000; body.Q.value = 1; body.gain.value = 7;
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 0.7;
   const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 60;
   const env = ctx.createGain();
@@ -50,7 +50,7 @@ export function horn(dur = 2) {
   const lfo = ctx.createOscillator(); lfo.frequency.value = 5.5;
   const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0.6;
   lfo.connect(lfoAmt); lfo.start(t0); lfo.stop(t0 + dur + 0.05);
-  for (const [f, g] of [[98, 0.42], [123.5, 0.32], [147, 0.3], [196, 0.18], [247, 0.1]]) {
+  for (const [f, g] of [[123.5, 0.42], [155.6, 0.32], [185, 0.3], [247, 0.18], [311, 0.1]]) {
     for (const det of [-6, 6]) {
       const o = ctx.createOscillator();
       o.type = 'sawtooth';
