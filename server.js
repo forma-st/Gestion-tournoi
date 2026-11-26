@@ -655,6 +655,7 @@ function findBin(name, extra = []) {
 const TAILSCALE_PLACES = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale'];
 const CLOUDFLARED_PLACES = ['/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared'];
 
+let tsFails = 0;
 function startTailscale() {
   const bin = process.env.TAILSCALE || findBin('tailscale', TAILSCALE_PLACES);
   if (!bin) {
@@ -663,6 +664,8 @@ function startTailscale() {
     return tailscaleMissing();
   }
   console.log('  ⏳ Ouverture de Tailscale Funnel…');
+  const startedAt = Date.now();
+  const said = []; // ce que Tailscale a répondu (pour expliquer un refus)
   let child;
   try { child = spawn(bin, ['funnel', String(PORT)], { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tailscaleMissing(); }
   children.add(child);
@@ -689,7 +692,10 @@ function startTailscale() {
   const onData = (buf) => {
     const txt = String(buf);
     // on affiche ce que dit Tailscale (liens d'activation, erreurs) pour pouvoir agir
-    for (const line of txt.split('\n').map((l) => l.trim()).filter(Boolean)) if (!/^(Available on the internet|Press Ctrl\+C|\|--)/i.test(line)) console.log(`     [tailscale] ${line}`);
+    for (const line of txt.split('\n').map((l) => l.trim()).filter(Boolean)) {
+      said.push(line);
+      if (!/^(Available on the internet|Press Ctrl\+C|\|--)/i.test(line)) console.log(`     [tailscale] ${line}`);
+    }
     const m = txt.match(/https:\/\/[a-z0-9.-]+\.ts\.net/i);
     if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
       publicUrl = m[0];
@@ -705,6 +711,20 @@ function startTailscale() {
     children.delete(child);
     clearTimeout(watchdog);
     if (stopping || missing) return;
+    // Refus immédiat et répété : c'est un réglage, pas une coupure réseau → inutile d'insister
+    tsFails = Date.now() - startedAt < 20000 ? tsFails + 1 : 0;
+    if (tsFails >= 3) {
+      console.log(`\n  ❌ Tailscale refuse d'ouvrir l'adresse publique (Funnel).${said.length ? `\n     Message de Tailscale :\n${said.slice(-8).map((l) => `       ${l}`).join('\n')}` : ''}
+     Causes habituelles :
+       • Funnel n'est pas autorisé pour ce Mac : ouvrez le lien affiché par Tailscale, ou dans la console
+         Tailscale (login.tailscale.com) → Access controls, ajoutez l'attribut « funnel » ;
+       • HTTPS n'est pas activé : console Tailscale → DNS → MagicDNS et « HTTPS Certificates » ;
+       • l'application Tailscale n'est pas connectée (icône dans la barre des menus).
+     Pour voir l'erreur en direct : ouvrez le Terminal et tapez  ${bin.includes(' ') ? `"${bin}"` : bin} funnel ${PORT}`);
+      if (findBin('cloudflared', CLOUDFLARED_PLACES)) { console.log('\n  ↪️  En attendant : bascule automatique sur le tunnel Cloudflare.\n'); return startCloudflare(); }
+      console.log(`\n  ↪️  Plan B sans compte : dans le Terminal, « brew install cloudflared », puis relancez avec : ./lancer-tournoi.command cloudflare\n     (le serveur continue de fonctionner sur ce Mac : http://localhost:${PORT})\n`);
+      return;
+    }
     console.log(`  ⚠️  Tailscale Funnel s'est arrêté (code ${code}). Nouvel essai dans 5 secondes…`);
     setTimeout(startTailscale, 5000);
   });
