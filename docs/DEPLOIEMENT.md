@@ -72,4 +72,11 @@ Imprimez ensuite les QR codes **depuis le Mac** : ils pointent vers l’adresse 
   - le serveur est arrêté puis relancé en plein match : rien n’est perdu et le grand écran se remet à jour sans être rechargé.
 - **Endurance** : le grand écran a tourné 5 minutes avec un point toutes les 0,4 s. La mémoire reste stable et aucun élément ne s’accumule.
 
+- **Sur Vercel**, essai réel sur la production pendant 2 minutes, avec 25 spectateurs et 6 arbitres marquant un point toutes les 2 s chacun :
+  - 2 308 requêtes, **0 erreur, 0 point perdu** ;
+  - un point est enregistré en 0,26 s (médiane), une relecture du tournoi prend 0,14 s ;
+  - le cache de Vercel a servi 66 % des vérifications et environ la moitié des relectures sans réveiller le serveur. Le rythme réel d'un match de volley étant beaucoup plus lent, la part servie par le cache est plus élevée en situation réelle.
+  - Pour refaire cet essai : `npm run test:charge -- --url https://votre-site.vercel.app/ --cle VOTRE-CLÉ`. Le tournoi de test est supprimé à la fin.
+- **Code gardé sur l'appareil** : après la première visite, les téléphones et le Mac ne retéléchargent plus le code. Lors d'une mise à jour, seuls les fichiers modifiés sont retéléchargés.
+
 Les tests automatiques (`npm test`) incluent les cas « deux arbitres », « envoi rejoué » et « rafale sur 3 terrains ».

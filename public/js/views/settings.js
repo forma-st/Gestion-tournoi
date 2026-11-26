@@ -1,5 +1,5 @@
 // Formulaires de réglages partagés entre l'assistant de création et l'administration.
-import { html, raw, esc, euros, plural, fmtDate } from '../ui.js';
+import { html, raw } from '../ui.js';
 import { SPORTS, SCORING_PRESETS, RANKING_RULES, COURT_COLORS, uid, buildSchedule, scheduleStats, slotTime, makeTeam } from '../engine.js';
 
 export const FORMATS = {

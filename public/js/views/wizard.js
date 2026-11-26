@@ -1,7 +1,6 @@
 // Assistant de création guidé : modèles vides, une question à la fois, aide et aperçu de la journée à chaque étape.
-import { store } from '../store.js';
-import { html, raw, toast, fmtDate, euros, plural } from '../ui.js';
-import { newTournament, uid, SPORTS, SCORING_PRESETS, RANKING_RULES, COURT_COLORS, makeTeam } from '../engine.js';
+import { html, raw, toast, fmtDate, plural } from '../ui.js';
+import { newTournament, uid, SPORTS, COURT_COLORS, makeTeam } from '../engine.js';
 import { buildDemo } from '../demo.js';
 import { suggestFormats } from '../club.js';
 import { tournamentRules } from '../rules.js';
@@ -42,7 +41,6 @@ const expectedOf = (t) => Math.max(2, +t._expected || 8);
 
 
 // ------------------------------------------------------------------ étapes
-const sel = (path, value, options) => html`<select data-path="${path}">${Object.entries(options).map(([k, l]) => html`<option value="${k}" ${String(value) === String(k) ? raw('selected') : ''}>${l}</option>`)}</select>`;
 
 const STEPS = [
   {

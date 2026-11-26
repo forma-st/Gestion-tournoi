@@ -1,8 +1,8 @@
 import { store } from '../store.js';
 import { netBadge } from './shell.js';
-import { activeSponsors, html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
-import { slotTime, finalPodium, currentSlot, scoringFor, slotTitle, isFinalsSlot } from '../engine.js';
-import { courtsInPlay, courtTile, startTimers, podiumView, watchHorn, soundButton, onSoundClick } from './components.js';
+import { activeSponsors, html, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
+import { slotTime, finalPodium, currentSlot, scoringFor, slotTitle } from '../engine.js';
+import { courtsInPlay, courtTile, startTimers, watchHorn, soundButton, onSoundClick } from './components.js';
 import { unlock, soundWanted } from '../sound.js';
 import { charityOf } from './bar.js';
 import { tournamentRules, appSteps, hasStarted } from '../rules.js';
@@ -56,7 +56,8 @@ export async function view(ctx) {
       });
       const h = setInterval(clock, 10000);
       clearInterval(rotTimer);
-      rotTimer = setInterval(() => { panelIdx++; ctx.rerender(); }, 12000);
+      // rotation des panneaux : on redessine avec les données déjà là (aucune requête réseau)
+      rotTimer = setInterval(() => { panelIdx++; ctx.repaint(); }, 12000);
       // Sans serveur (mode autonome), on relit régulièrement le stockage local
       const poll = store.mode === 'local' ? setInterval(() => ctx.rerender(), 5000) : null;
       this.cleanup = () => { stopTimers(); stopHorn(); clearInterval(h); clearInterval(poll); };

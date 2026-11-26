@@ -1,7 +1,7 @@
 // Tournois d'exemple : le multisport de la semaine prochaine, le format 18 équipes, une double élimination.
 import { newPlayer } from './club.js';
 import { issueCard, cardSale } from './money.js';
-import { newTournament, makeTeam, buildSchedule, resolve, scoringFor, BYE, COURT_COLORS, SCORING_PRESETS, uid } from './engine.js';
+import { newTournament, makeTeam, resolve, scoringFor, BYE, COURT_COLORS, SCORING_PRESETS, uid } from './engine.js';
 
 const NAMES = ['Les Smasheurs', 'Block Party', 'Les Pieds Carrés', 'Service Gagnant', 'Filet Mignon', 'Les Manchettes', 'Ace Ventura', 'Les Libéros', 'Team Réception', 'Les Passeurs Fous', 'Sable Chaud', 'Les Contres Attaques', 'Volley Gones', 'Les Kangourous', 'Pas de Côté', 'Les Rotations', 'Bloc Opératoire', 'Les Tie-Breakers'];
 const CAPTAINS = ['Camille', 'Hugo', 'Léa', 'Yanis', 'Inès', 'Mathis', 'Chloé', 'Nathan', 'Manon', 'Lucas', 'Sarah', 'Théo', 'Jade', 'Adam', 'Zoé', 'Louis', 'Emma', 'Noah'];

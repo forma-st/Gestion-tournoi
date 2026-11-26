@@ -411,7 +411,6 @@ export function schedule(t, matches) {
   const tB = (m) => (m.phase === 'pool2' ? `${m.pool}#${m.memB}` : m.teamB);
   const bracket = matches.filter((m) => m.phase === 'bracket' && !m.bye);
   const usage = {}; // team -> court -> count
-  const lastSlot = {};
   const bump = (team, courtId) => { usage[team] ??= {}; usage[team][courtId] = (usage[team][courtId] || 0) + 1; };
   const use = (team, courtId) => usage[team]?.[courtId] || 0;
   let slot = 0;

@@ -1,6 +1,6 @@
 // Feuille de match sur téléphone : ouverte par le QR code d'un terrain ou depuis le portail.
 import { store } from '../store.js';
-import { html, raw, toStr, toast, modal, sides, matchTime, teamName, sportOf, phaseLabel, $, esc, contrastInk } from '../ui.js';
+import { html, raw, toast, modal, sides, matchTime, teamName, sportOf, phaseLabel, $, contrastInk } from '../ui.js';
 import { scoringFor, setFinished, setTarget, matchResult, BYE } from '../engine.js';
 import { fmtClock } from './components.js';
 import { netBadge } from './shell.js';

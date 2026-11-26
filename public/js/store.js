@@ -15,7 +15,6 @@ const emit = (msg) => listeners.forEach((f) => f(msg));
 
 export const store = {
   mode: 'local',
-  online: navigator.onLine,
   lan: [],
   pending: LS.get('rot:outbox', []),
   bc: 'BroadcastChannel' in self ? new BroadcastChannel('rotation') : null,

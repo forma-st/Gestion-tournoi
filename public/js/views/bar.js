@@ -1,8 +1,8 @@
 // Buvette (caisse tactile + gestion) et cagnotte solidaire.
 import { store } from '../store.js';
-import { html, raw, toStr, toast, modal, confirmBox, euros, plural, qrSvg, download, logo, $, $$ } from '../ui.js';
+import { html, raw, toast, modal, confirmBox, euros, plural, qrSvg, download, logo, $ } from '../ui.js';
 import { uid } from '../engine.js';
-import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, pointsScored, ingredientStats, productCost, productPoints, DEFAULT_PACKS, cardsSummary, filRougeOn } from '../money.js';
+import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, ingredientStats, productCost, productPoints, DEFAULT_PACKS, cardsSummary, filRougeOn } from '../money.js';
 
 const CATS = ['Boissons', 'Snacks', 'Sucré', 'Salé', 'Autre'];
 const CAT_COLORS = { Boissons: '#00A6D6', Snacks: '#F2545B', Sucré: '#8E6CEF', Salé: '#FF8C42', Autre: '#3BB273' };

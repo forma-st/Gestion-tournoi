@@ -1,9 +1,9 @@
 import { store } from '../store.js';
-import { activeSponsors, sponsorBadge, html, raw, toStr, toast, fmtDate, euros, plural, sportOf, qrSvg, download, logo, contrastInk, $ } from '../ui.js';
+import { activeSponsors, sponsorBadge, html, raw, toStr, toast, fmtDate, euros, plural, download, logo, contrastInk, $ } from '../ui.js';
 import { SPORTS } from '../engine.js';
 import { FORMATS, PROVIDERS } from './settings.js';
 import qrcode from '../../vendor/qrcode.mjs';
-import { charityCard, declareDonation, charityOf } from './bar.js';
+import { charityCard, declareDonation } from './bar.js';
 import { LEVELS } from '../club.js';
 import { teamDue, barOption } from '../money.js';
 
@@ -29,7 +29,6 @@ export async function view(ctx) {
   const r = t.registration;
   const ink = contrastInk(t.theme || '#0B6E2E');
   const sports = [...new Set(t.courts.map((c) => c.sport))].map((k) => SPORTS[k]);
-  const ch = t.charity;
   return {
     title: t.name,
     html: html`<section class="promo-hero" style="background:${t.theme || 'var(--court)'};${ink ? 'color:var(--ink)' : ''}"><div class="in">

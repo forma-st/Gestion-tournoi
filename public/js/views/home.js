@@ -1,10 +1,10 @@
 import { store } from '../store.js';
-import { html, raw, toStr, toast, modal, fmtDate, euros, plural, $, $$ } from '../ui.js';
-import { newTournament, buildSchedule, uid, SPORTS, setArchived } from '../engine.js';
+import { html, raw, toast, modal, fmtDate, euros, plural } from '../ui.js';
+import { buildSchedule, uid, setArchived } from '../engine.js';
 import { buildDemo, simulate, DEMOS } from '../demo.js';
 import { shell } from './shell.js';
 import { TEMPLATES, makeTemplate, saveDraft } from './wizard.js';
-import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
+
 
 // ------------------------------------------------------------------ accueil
 let showArch = false;
