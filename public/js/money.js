@@ -117,6 +117,9 @@ export function pointsScored(t) {
   return n;
 }
 
+/** Fil rouge (« chaque point rapporte » + paliers/défis) : option à cocher. Anciennes données : actif s'il était rempli. */
+export const filRougeOn = (c = {}) => c.filRouge ?? !!(+c.pointPledge || (c.milestones || []).length);
+
 export function charityTotals(t) {
   const c = t.charity || {};
   const donations = (c.donations || []).filter((d) => d.validated);
@@ -125,13 +128,14 @@ export function charityTotals(t) {
   const b = buvetteStats(t);
   const bar = c.includeBuvette ? (c.buvetteMode === 'revenue' ? b.revenue : b.margin) : 0;
   const pts = pointsScored(t);
-  const pledge = (+c.pointPledge || 0) * pts;
+  const fil = filRougeOn(c);
+  const pledge = fil ? (+c.pointPledge || 0) * pts : 0;
   const capped = c.pledgeCap ? Math.min(pledge, +c.pledgeCap) : pledge;
   const total = (+c.raised || 0) + don + fees + bar + capped;
   const goal = +c.goal || 0;
-  const miles = (c.milestones || []).filter((m) => m.amount).sort((a, b) => a.amount - b.amount);
+  const miles = (fil ? c.milestones || [] : []).filter((m) => m.amount).sort((a, b) => a.amount - b.amount);
   return {
-    total, goal, base: +c.raised || 0, don, fees, bar, pledge: capped, points: pts,
+    total, goal, base: +c.raised || 0, don, fees, bar, pledge: capped, points: pts, pledgeOn: fil && +c.pointPledge > 0,
     pct: goal ? Math.min(100, (100 * total) / goal) : 0,
     reached: miles.filter((m) => total >= m.amount),
     next: miles.find((m) => total < m.amount) || null,

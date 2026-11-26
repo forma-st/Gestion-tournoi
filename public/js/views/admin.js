@@ -1,11 +1,11 @@
 import { store } from '../store.js';
 import { imageToDataUrl, html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
-import { setArchived, buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation } from '../engine.js';
+import { setArchived, buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation, slotTitle, isFinalsSlot } from '../engine.js';
 import { clock, elapsedOf } from '../time.js';
 import { shell } from './shell.js';
 import { applySportRule, sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS, FORMATS } from './settings.js';
 import { compareTable } from './home.js';
-import { matchRow, courtTile, rankingsView, startTimers, STATUS, watchHorn, soundButton, onSoundClick } from './components.js';
+import { matchRow, courtsInPlay, courtTile, rankingsView, startTimers, STATUS, watchHorn, soundButton, onSoundClick } from './components.js';
 import { unlock, soundWanted } from '../sound.js';
 import { posterCanvas, drawPoster } from './promo.js';
 import { adminBuvette, adminCagnotte, barActions, showCard } from './bar.js';
@@ -33,6 +33,9 @@ const TABS = [
 const fmtKey = (f) => [f.type, f.legs || 1, f.finalsTop || 0, f.pools || 0, f.poolSize || 0, f.finals || ''].join('|');
 const FORMAT_LABEL = (t) => `${FORMATS[t.format.type]?.label || t.format.type}${t.format.legs > 1 ? ' aller-retour' : ''}${t.format.finalsTop ? (t.format.finalsTop === 2 ? ' + finale' : ' + phase finale') : ''}`;
 function lastEnd(t) { const s = Math.max(-1, ...t.matches.filter((m) => m.slot != null).map((m) => m.slot)); return s < 0 ? '—' : slotTime(t, s + 1); }
+
+/** Rotations de l'onglet Matchs ouvertes ou fermées à la main (clé tournoi:créneau). */
+const slotOpen = new Map();
 
 /** Déroulé chronologique du tournoi : chaque onglet propose l’étape « suivante ». */
 const FLOW = [
@@ -88,7 +91,7 @@ export async function view(ctx) {
       if (soundWanted()) unlock();
       const cv = $('#poster', root);
       if (cv) drawPoster(cv, t, 'post', store.baseUrl());
-      root.addEventListener('focusin', (e) => { if (e.target.matches('input,textarea,select')) focusKeep = true; });
+      root.addEventListener('focusin', (e) => { if (e.target.matches('input:not([type=checkbox]):not([type=radio]),textarea,select')) focusKeep = true; });
       root.addEventListener('focusout', () => { focusKeep = false; });
       root.addEventListener('change', (e) => onChange(ctx, e));
       root.addEventListener('click', (e) => onClick(ctx, e));
@@ -159,7 +162,7 @@ const PANELS = {
         ${ch ? html`<a class="kpi" href="#/admin/${t.id}/cagnotte" style="text-decoration:none;color:inherit"><div class="v">${euros(ch.total)}</div><div class="l">cagnotte ${t.charity.label || ''}${ch.goal ? ` (objectif ${euros(ch.goal)})` : ''}</div></a>` : ''}
       </div>
       ${t.matches.length ? html`<section class="section"><div class="row between"><h2>Terrains</h2><a class="btn ghost sm" href="#/admin/${t.id}/matchs">Tous les matchs</a></div>
-        <div class="courts-grid">${t.courts.filter((c) => c.active !== false).map((c) => courtTile(ctx, c, { link: `#/court/${t.id}/${c.id}` }))}</div></section>` : ''}
+        <div class="courts-grid">${courtsInPlay(ctx).map((c) => courtTile(ctx, c, { link: `#/court/${t.id}/${c.id}` }))}</div></section>` : ''}
       <div class="grid2 section">
         <div class="card stack"><h3>Avancement</h3>
           ${phases.length ? html`<div class="phases">${phases.map((p) => html`<div class="phase"><b>${p.label}</b><span class="muted small">${p.done}/${p.total}</span><div class="bar"><i style="width:${p.total ? (100 * p.done) / p.total : 0}%"></i></div></div>`)}</div>` : html`<p class="muted">Le planning n’est pas encore généré.</p>`}
@@ -308,17 +311,29 @@ const PANELS = {
     if (!t.matches.length) return html`<div class="empty"><p>Pas encore de matchs.</p><a class="btn" href="#/admin/${t.id}/planning">Générer le planning</a></div>`;
     const f = ctx.route.query.f || 'all';
     const slots = [...new Set(t.matches.filter((m) => m.slot != null).map((m) => m.slot))].sort((a, b) => a - b);
+    const cur = currentSlot(t);
     const filt = (m) => f === 'all' || m.status === f || (f === 'validate' && m.status === 'done' && t.scoreValidation && !m.validated);
     return html`${rotationPanel(ctx)}<div class="row between" style="margin-top:1rem"><h2 style="margin:0">Matchs</h2>
       <div class="row"><a class="btn ghost sm" href="#/print/${t.id}/feuilles" target="_blank">🖨 Toutes les feuilles papier</a><a class="btn ghost sm" href="#/print/${t.id}/feuilles?vierge=1" target="_blank">Feuilles vierges</a></div></div><div class="row between">
       <div class="filters">${Object.entries({ all: 'Tous', live: 'En cours', scheduled: 'À venir', done: 'Terminés', ...(t.scoreValidation ? { validate: 'À valider' } : {}) }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div></div>
+      <div class="row" style="justify-content:flex-end;margin-top:.6rem"><button class="linkbtn small" data-act="slots-all" data-open="1">Tout déplier</button><button class="linkbtn small" data-act="slots-all" data-open="0">Tout replier</button></div>
       ${slots.map((s) => {
-        const ms = t.matches.filter((m) => m.slot === s && m.status !== 'bye' && filt(m)).sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId));
+        const all = t.matches.filter((m) => m.slot === s && m.status !== 'bye');
+        const ms = all.filter(filt).sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId));
         if (!ms.length) return '';
         const brk = (t.breaks || []).find((b) => b.afterSlot === s - 1);
+        const finished = all.every((m) => m.status === 'done');
+        const isCur = s === cur;
+        // ouvert d'office : rotation en cours et à venir ; fermé : rotation jouée. Le choix de l'organisateur est gardé.
+        const key = `${t.id}:${s}`;
+        const open = f !== 'all' || (slotOpen.has(key) ? slotOpen.get(key) : !finished);
+        const nDone = all.filter((m) => m.status === 'done').length;
         return html`${brk ? html`<div class="pill warn" style="margin-top:1rem">☕ ${brk.label || 'Pause'} · ${brk.minutes} min</div>` : ''}
-          <div class="slot-h"><h3>Rotation ${s + 1}</h3><span class="slot-time">${slotTime(t, s)}</span>${restingTeams(ctx, s)}<span class="spacer"></span><a class="btn ghost sm" href="#/print/${t.id}/feuilles?rot=${s}" target="_blank">🖨 Feuilles papier</a></div>
-          ${ms.map((m) => matchRow(ctx, m, { action: adminActions }))}`;
+          <details class="slotbox ${finished ? 'done' : ''} ${isCur ? 'cur' : ''}" data-slot-key="${key}" ${open ? raw('open') : ''}>
+          <summary class="slot-h"><span class="chev" aria-hidden="true">▸</span><h3>${slotTitle(t, s)}</h3><span class="slot-time">${slotTime(t, s)}</span>
+            ${finished ? html`<span class="pill ok">✓ ${plural(all.length, 'match joué', 'matchs joués')}</span>` : isCur ? html`<span class="pill live">En cours${nDone ? ` · ${nDone}/${all.length} terminés` : ''}</span>` : ''}
+            ${restingTeams(ctx, s)}<span class="spacer"></span><a class="btn ghost sm" href="#/print/${t.id}/feuilles?rot=${s}" target="_blank">🖨 Feuilles papier</a></summary>
+          ${ms.map((m) => matchRow(ctx, m, { action: adminActions }))}</details>`;
       })}`;
   },
 
@@ -454,11 +469,11 @@ function rotationPanel(ctx) {
   const over = timed && elapsedOf(timed.timer) >= dur * 60000;
   const done = ms.filter((m) => m.status === 'done').length;
   return html`<div class="card row between dark" style="margin-top:1rem;background:var(--ink);color:#fff;gap:1rem">
-    <div><div style="opacity:.75" class="small">Rotation ${slot + 1} · prévue à ${slotTime(t, slot)} · ${ms.length} matchs${done ? ` · ${done} terminés` : ''}</div>
+    <div><div style="opacity:.75" class="small">${slotTitle(t, slot)} · prévue à ${slotTime(t, slot)} · ${plural(ms.length, 'match')}${done ? ` · ${plural(done, 'terminé')}` : ''}</div>
       ${timed ? html`<div class="num" style="font-size:3rem;line-height:1;color:${over ? 'var(--ball)' : '#fff'}" data-timer="${JSON.stringify(timed.timer)}" data-dur="${dur}">⏱</div>`
       : live.length ? html`<div class="num" style="font-size:1.8rem">En cours</div>` : html`<div class="num" style="font-size:1.8rem">Prête à démarrer</div>`}</div>
     <div class="row">
-      ${ready.length ? html`<button class="btn ball" style="min-height:56px;font-size:1.15rem" data-act="rot-start" data-slot="${slot}">▶ Lancer la rotation ${slot + 1}</button>` : ''}
+      ${ready.length ? html`<button class="btn ball" style="min-height:56px;font-size:1.15rem" data-act="rot-start" data-slot="${slot}">▶ Lancer ${isFinalsSlot(t, slot) ? `: ${slotTitle(t, slot)}` : `la rotation ${slot + 1}`}</button>` : ''}
       ${timed && timed.timer.running ? html`<button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="rot-pause" data-slot="${slot}">Pause</button>` : ''}
       ${timed && !timed.timer.running ? html`<button class="btn ball" data-act="rot-resume" data-slot="${slot}">Reprendre</button>` : ''}
       <a class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" href="#/admin/${t.id}/matchs?f=live">Scores</a>
@@ -656,6 +671,10 @@ async function onSubmit(ctx, e) {
 
 async function onClick(ctx, e) {
   if (await onSoundClick(e)) return;
+  const sum = e.target.closest('details.slotbox > summary');
+  if (sum && !e.target.closest('a,button')) { const d = sum.parentElement; slotOpen.set(d.dataset.slotKey, !d.open); return; }
+  const sa = e.target.closest('[data-act=slots-all]');
+  if (sa) { const o = sa.dataset.open === '1'; $$('details.slotbox').forEach((d) => { d.open = o; slotOpen.set(d.dataset.slotKey, o); }); return; }
   const b = e.target.closest('[data-act]');
   if (!b || b.tagName === 'INPUT') return;
   const { t } = ctx;
@@ -725,7 +744,7 @@ async function onClick(ctx, e) {
       await save(ctx, (d) => {
         if (act === 'rot-start') n = startRotation(d, slot, now).length;
         else toggleRotation(d, slot, now, act === 'rot-resume');
-      }, act === 'rot-start' ? `Rotation ${slot + 1} lancée` : act === 'rot-pause' ? 'Chronos en pause' : 'Chronos relancés');
+      }, act === 'rot-start' ? `${slotTitle(ctx.t, slot)} : c’est parti` : act === 'rot-pause' ? 'Chronos en pause' : 'Chronos relancés');
       return rr();
     }
     case 'courts-dec': case 'courts-inc': {

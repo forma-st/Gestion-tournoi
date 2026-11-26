@@ -2,7 +2,7 @@ import { qrSvg } from '../ui.js';
 import { elapsedOf } from '../time.js';
 import { hornOnce, soundReady, unlock, horn } from '../sound.js';
 import { html, raw, sides, scoreText, matchTime, phaseLabel, teamName, sportOf, contrastInk, esc } from '../ui.js';
-import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS } from '../engine.js';
+import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS, currentSlot, isFinalsSlot } from '../engine.js';
 
 export const STATUS = { scheduled: 'À venir', live: 'En cours', done: 'Terminé', bye: 'Exempt' };
 
@@ -35,6 +35,26 @@ export function matchRow(ctx, m, opts = {}) {
 }
 
 /** Terrain vu du dessus avec le match en cours (ou le prochain). */
+/**
+ * Terrains à afficher : en phase finale, seulement ceux qui ont un match dans la rotation en cours ;
+ * sinon, on masque les terrains qui n'ont plus aucun match à jouer.
+ */
+export function courtsInPlay(ctx) {
+  const { t, resolved } = ctx;
+  const courts = t.courts.filter((c) => c.active !== false);
+  const cur = currentSlot(t);
+  if (cur == null) return courts;
+  const playing = (m) => m.status !== 'bye' && !resolved?.[m.id]?.skip;
+  if (isFinalsSlot(t, cur)) {
+    const used = new Set(t.matches.filter((m) => m.slot === cur && playing(m)).map((m) => m.courtId));
+    const k = courts.filter((c) => used.has(c.id));
+    if (k.length) return k;
+  }
+  const left = new Set(t.matches.filter((m) => playing(m) && (m.status === 'scheduled' || m.status === 'live')).map((m) => m.courtId));
+  const k = courts.filter((c) => left.has(c.id));
+  return k.length ? k : courts;
+}
+
 export function courtTile(ctx, court, { big = false, link = '', qr = '' } = {}) {
   const { t, resolved } = ctx;
   const ms = t.matches.filter((m) => m.courtId === court.id && m.status !== 'bye').sort((a, b) => a.slot - b.slot);
@@ -200,7 +220,7 @@ export const fmtClock = (ms) => { const s = Math.ceil(ms / 1000); return `${Stri
 
 export { POOL_LETTERS };
 
-/** Corne de brume à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
+/** Corne de stade à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
 export function watchHorn(t) {
   const check = () => {
     const live = t.matches.filter((m) => m.status === 'live' && m.timer?.running);
@@ -215,12 +235,12 @@ export function watchHorn(t) {
 }
 
 /** Bouton d'activation du son (obligatoire avant toute lecture dans les navigateurs). */
-export const soundButton = (cls = '') => html`<button class="btn ghost sm ${cls}" data-act="sound" title="La corne de brume retentit à la fin du temps de chaque rotation">${soundReady() ? '🔊 Son activé' : '🔇 Activer le son'}</button>`;
+export const soundButton = (cls = '') => html`<button class="btn ghost sm ${cls}" data-act="sound" title="La corne de stade retentit à la fin du temps de chaque rotation">${soundReady() ? '🔊 Son activé' : '🔇 Activer le son'}</button>`;
 
 /** Gestion des clics sur le bouton son : active, puis fait entendre la corne pour vérifier le volume. */
 export async function onSoundClick(e, rerender) {
   const b = e.target.closest('[data-act=sound]');
   if (!b) return false;
-  if (await unlock()) { horn(1); b.textContent = '🔊 Son activé'; } else b.textContent = 'Son indisponible';
+  if (await unlock()) { horn(); b.textContent = '🔊 Son activé'; } else b.textContent = 'Son indisponible';
   return true;
 }

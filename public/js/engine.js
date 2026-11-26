@@ -933,3 +933,25 @@ export function setArchived(t, on) {
   else { delete t.archivedAt; if (t.registration?.wasOpen) t.registration.open = true; if (t.registration) delete t.registration.wasOpen; }
   return t;
 }
+
+const ROUND_SHORT = { 'Quart de finale': '1/4 de finale', 'Demi-finale': '1/2 finale', '8e de finale': '1/8 de finale', '16e de finale': '1/16 de finale' };
+/**
+ * Titre d'une rotation : « Rotation 5 » pendant les poules ; en phase finale, le nom du tour
+ * (« 1/4 de finale », « 1/2 finale », « Finale · Match pour la 3e place »…).
+ */
+export function slotTitle(t, slot) {
+  const ms = t.matches.filter((m) => m.slot === slot && m.status !== 'bye');
+  if (!ms.length || ms.some((m) => m.phase !== 'bracket')) return `Rotation ${slot + 1}`;
+  const names = [], places = [];
+  for (const m of ms) {
+    const pl = /^Places (\d+)-(\d+)$/.exec(m.label || '');
+    if (pl) { places.push(+pl[1], +pl[2]); continue; }
+    const l = ROUND_SHORT[m.label] || (m.label === 'Match pour la 3e place' ? '3e place' : m.label) || '';
+    if (l && !names.includes(l)) names.push(l);
+  }
+  if (places.length) names.push(places.length > 2 ? `Places ${Math.min(...places)} à ${Math.max(...places)}` : `Places ${places[0]}-${places[1]}`);
+  return names.join(' · ') || `Rotation ${slot + 1}`;
+}
+
+/** Phase finale : la rotation ne contient que des matchs de tableau. */
+export const isFinalsSlot = (t, slot) => { const ms = t.matches.filter((m) => m.slot === slot && m.status !== 'bye'); return ms.length > 0 && ms.every((m) => m.phase === 'bracket'); };

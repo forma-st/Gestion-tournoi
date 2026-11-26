@@ -2,7 +2,7 @@
 import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, confirmBox, euros, plural, qrSvg, download, logo, $, $$ } from '../ui.js';
 import { uid } from '../engine.js';
-import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, pointsScored, ingredientStats, productCost, productPoints, DEFAULT_PACKS, cardsSummary } from '../money.js';
+import { buvetteStats, charityTotals, feesSummary, PAY_METHODS, pointsScored, ingredientStats, productCost, productPoints, DEFAULT_PACKS, cardsSummary, filRougeOn } from '../money.js';
 
 const CATS = ['Boissons', 'Snacks', 'Sucré', 'Salé', 'Autre'];
 const CAT_COLORS = { Boissons: '#00A6D6', Snacks: '#F2545B', Sucré: '#8E6CEF', Salé: '#FF8C42', Autre: '#3BB273' };
@@ -18,7 +18,7 @@ export function charityCard(t, { donate = true } = {}) {
     <h3 style="color:var(--ball);margin:0">${c.label || 'Cagnotte solidaire'}</h3>
     <div class="num" style="font-size:2.6rem;line-height:1">${euros(x.total)} ${x.goal ? html`<span style="font-size:1.1rem;opacity:.7">sur ${euros(x.goal)}</span>` : ''}</div>
     ${x.goal ? html`<div class="places"><i style="width:${x.pct}%"></i></div>` : ''}
-    ${c.pointPledge ? html`<p style="margin:0">🏐 Chaque point marqué rapporte ${euros(c.pointPledge)}${c.pledgeSponsor ? ` grâce à ${c.pledgeSponsor}` : ''} : <b>${x.points} points</b> marqués, soit <b>${euros(x.pledge)}</b>.</p>` : ''}
+    ${x.pledgeOn ? html`<p style="margin:0">🏐 Chaque point marqué rapporte ${euros(c.pointPledge)}${c.pledgeSponsor ? ` grâce à ${c.pledgeSponsor}` : ''} : <b>${x.points} points</b> marqués, soit <b>${euros(x.pledge)}</b>.</p>` : ''}
     ${x.next ? html`<p style="margin:0">Prochain palier : <b>${euros(x.next.amount)}</b> → ${x.next.label}</p>` : ''}
     ${x.reached.length ? html`<p style="margin:0;opacity:.85">Défis débloqués : ${x.reached.map((m) => m.label).join(' · ')}</p>` : ''}
     ${donate ? html`<div class="row"><a class="btn ball" href="#/don/${t.id}">Faire un don</a><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" data-act="declare-don">J’ai donné, je le signale</button></div>` : ''}
@@ -408,7 +408,7 @@ export function adminCagnotte(ctx) {
       <div class="kpi"><div class="v">${euros(x.don)}</div><div class="l">dons validés${x.pending ? ` · ${x.pending} à vérifier` : ''}</div></div>
       ${c.includeFees ? html`<div class="kpi"><div class="v">${euros(x.fees)}</div><div class="l">inscriptions encaissées</div></div>` : ''}
       ${c.includeBuvette ? html`<div class="kpi"><div class="v">${euros(x.bar)}</div><div class="l">buvette (${c.buvetteMode === 'revenue' ? 'recette' : 'bénéfice'})</div></div>` : ''}
-      ${c.pointPledge ? html`<div class="kpi"><div class="v">${euros(x.pledge)}</div><div class="l">${x.points} points × ${euros(c.pointPledge)}</div></div>` : ''}
+      ${x.pledgeOn ? html`<div class="kpi"><div class="v">${euros(x.pledge)}</div><div class="l">${x.points} points × ${euros(c.pointPledge)}</div></div>` : ''}
     </div>
     ${pending.length ? html`<div class="card stack"><h3 style="margin:0">Dons à vérifier</h3>${pending.map((d) => html`<div class="row between" data-don="${d.id}"><span><b>${d.name}</b> · ${euros(d.amount)} · ${({ online: 'en ligne', cash: 'espèces', card: 'carte', lydia: 'Lydia' })[d.method] || ''}${d.message ? html` · <i>« ${d.message} »</i>` : ''}</span><span class="row"><button class="btn sm" data-act="don-ok">Valider</button><button class="btn danger sm" data-act="don-no">Refuser</button></span></div>`)}</div>` : ''}
     <div class="grid2">
@@ -421,6 +421,8 @@ export function adminCagnotte(ctx) {
         ${donSettings(t)}
       </form>
       <form class="card stack" onsubmit="return false"><h3>Fil rouge de la soirée</h3>
+        <label class="check"><input type="checkbox" data-path="charity.filRouge" ${filRougeOn(c) ? raw('checked') : ''}> <span><b>Activer un fil rouge</b> <span class="hint">(facultatif : rien ne s’affiche s’il n’est pas coché)</span></span></label>
+        ${filRougeOn(c) ? html`
         <p class="hint" style="margin:0"><b>Chaque point compte :</b> un partenaire (ou le club) s’engage à verser une somme par point marqué. Le compteur tourne en direct sur le grand écran à chaque point saisi.</p>
         <div class="grid2"><label class="f">€ par point marqué<input type="number" min="0" step="0.01" data-type="num" data-path="charity.pointPledge" value="${c.pointPledge || 0}"></label>
         <label class="f">Plafond (€, facultatif)<input type="number" min="0" data-type="num" data-path="charity.pledgeCap" value="${c.pledgeCap || ''}"></label></div>
@@ -428,6 +430,7 @@ export function adminCagnotte(ctx) {
         <p class="hint" style="margin:0"><b>Paliers et défis :</b> à chaque montant atteint, un défi se débloque à l’écran (l’arbitre en tutu, le président au service…).</p>
         ${(c.milestones || []).map((m, i) => html`<div class="row"><input type="number" min="0" data-type="num" data-path="charity.milestones.${i}.amount" value="${m.amount}" style="width:110px" aria-label="Montant"> €<input type="text" data-path="charity.milestones.${i}.label" value="${m.label}" style="flex:1" aria-label="Défi"><button class="btn danger sm" data-act="rm-mile" data-i="${i}">✕</button></div>`)}
         <div><button class="btn ghost sm" data-act="add-mile">Ajouter un palier</button></div>
+      ` : ''}
       </form>
     </div>
     <div class="card stack"><div class="row between"><h3 style="margin:0">Dons</h3><button class="btn sm" data-act="add-don">Ajouter un don (urne, chèque…)</button></div>
