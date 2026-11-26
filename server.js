@@ -579,7 +579,8 @@ if (!IS_VERCEL) http.createServer(handle).listen(PORT, HOST, () => {
   const ips = lanIps();
   console.log('\n  🏐  Rotation : serveur prêt\n');
   console.log(`  Sur cet ordinateur : http://localhost:${PORT}`);
-  for (const ip of ips) console.log(`  Réseau local (Wi-Fi) : http://${ip}:${PORT}`);
+  for (const ip of ips) console.log(`  Même Wi-Fi ou même partage de connexion seulement : http://${ip}:${PORT}`);
+  if (!TUNNEL && !publicUrl) console.log(`\n  ℹ️  Les téléphones en 4G ne peuvent PAS joindre ces adresses. Pour eux, lancez avec Tailscale ou Cloudflare\n     (double-clic sur lancer-tournoi.command, ou « npm run en-ligne:tailscale » / « npm run en-ligne »).`);
   if (publicUrl) console.log(`\n  🌍 Adresse publique : ${publicUrl}`);
   if (TUNNEL) startTunnel();
   if (ADMIN_KEY) console.log(`\n  🔑 Clé organisateur (pour créer un tournoi depuis un autre appareil) : ${ADMIN_KEY}`);
@@ -599,7 +600,18 @@ if (!IS_VERCEL) http.createServer(handle).listen(PORT, HOST, () => {
  */
 function startTunnel() {
   if (TAILSCALE) return startTailscale();
-  const bin = process.env.CLOUDFLARED || 'cloudflared';
+  return startCloudflare();
+}
+
+/** Adresse publique connue : on l'annonce clairement (c'est celle des téléphones en 4G). */
+function announcePublic(fixed) {
+  console.log(`\n  ✅ ADRESSE POUR TOUS LES TÉLÉPHONES (4G comprise) : ${publicUrl}
+     Testez-la depuis un téléphone en 4G, Wi-Fi coupé. Les QR codes l'utilisent${fixed ? ' : vous pouvez les imprimer à l\'avance' : ' (elle change à chaque lancement : imprimez les QR après le démarrage)'}.
+     Sur ce Mac, ouvrez plutôt http://localhost:${PORT} (admin, grand écran) : ça continue même si Internet coupe.\n`);
+}
+
+function startCloudflare() {
+  const bin = process.env.CLOUDFLARED || findBin('cloudflared', CLOUDFLARED_PLACES) || 'cloudflared';
   const args = process.env.TUNNEL_TOKEN
     ? ['tunnel', '--no-autoupdate', 'run', '--token', process.env.TUNNEL_TOKEN]
     : ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`];
@@ -613,7 +625,7 @@ function startTunnel() {
     const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
       publicUrl = m[0];
-      console.log(`\n  🌍 En ligne : ${publicUrl}\n     Ouvrez cette adresse sur l'ordinateur : les QR codes l'utiliseront.\n     (Elle change à chaque lancement : imprimez les affiches QR une fois le serveur démarré.)\n`);
+      announcePublic(false);
       broadcast({ type: 'net' });
     }
     if (/Registered tunnel connection/i.test(String(buf)) && process.env.TUNNEL_TOKEN) console.log(`  🌍 Tunnel connecté : ${publicUrl || '(définissez PUBLIC_URL)'}`);
@@ -625,7 +637,7 @@ function startTunnel() {
     if (stopping || missing) return;
     // Coupure Internet, mise en veille… : on relance le tunnel tout seul
     console.log(`  ⚠️  Le tunnel s'est arrêté (code ${code}). Nouvel essai dans 5 secondes…${process.env.TUNNEL_TOKEN ? '' : ' (adresse rapide : elle va changer, préférez Tailscale pour des QR fixes)'}`);
-    setTimeout(startTunnel, 5000);
+    setTimeout(startCloudflare, 5000);
   });
 }
 
@@ -633,28 +645,65 @@ function startTunnel() {
  * Tailscale Funnel : adresse publique https fixe (https://ordinateur.nom-du-tailnet.ts.net),
  * donc des QR codes imprimables à l'avance. Il faut avoir activé Funnel une fois dans la console Tailscale.
  */
+/** Trouve un programme : dans le PATH, ou aux emplacements habituels sur Mac (application, Homebrew). */
+function findBin(name, extra = []) {
+  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+    if (dir && fs.existsSync(path.join(dir, name))) return path.join(dir, name);
+  }
+  return extra.find((f) => fs.existsSync(f)) || null;
+}
+const TAILSCALE_PLACES = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale'];
+const CLOUDFLARED_PLACES = ['/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared'];
+
 function startTailscale() {
-  const bin = process.env.TAILSCALE || 'tailscale';
+  const bin = process.env.TAILSCALE || findBin('tailscale', TAILSCALE_PLACES);
+  if (!bin) {
+    // Pas de Tailscale : si cloudflared est installé, on bascule dessus plutôt que de rester injoignable
+    if (findBin('cloudflared', CLOUDFLARED_PLACES)) { console.log('  ⚠️  Tailscale introuvable : bascule sur le tunnel Cloudflare.'); return startCloudflare(); }
+    return tailscaleMissing();
+  }
   console.log('  ⏳ Ouverture de Tailscale Funnel…');
   let child;
   try { child = spawn(bin, ['funnel', String(PORT)], { stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return tailscaleMissing(); }
   children.add(child);
   let missing = false;
   child.on('error', () => { missing = true; tailscaleMissing(); });
+  // Sans adresse au bout de 25 s : on explique les causes habituelles et l'adresse attendue
+  const watchdog = setTimeout(() => {
+    if (publicUrl) return;
+    let dns = '';
+    try {
+      const st = spawn(bin, ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = ''; st.stdout.on('data', (c) => { out += c; });
+      st.on('exit', () => {
+        try { dns = (JSON.parse(out).Self?.DNSName || '').replace(/\.$/, ''); } catch { /* */ }
+        console.log(`\n  ⚠️  Tailscale Funnel ne donne pas encore d'adresse publique. Vérifiez :
+     1. l'application Tailscale est ouverte et connectée (icône dans la barre des menus) ;
+     2. dans la console Tailscale (login.tailscale.com) : DNS → MagicDNS et HTTPS activés ;
+     3. Funnel est autorisé pour ce Mac (Access controls : attribut « funnel ») — suivez le lien affiché ci-dessus s'il y en a un ;
+     4. la première fois, l'adresse peut mettre jusqu'à 10 minutes à fonctionner.${dns ? `\n     Adresse attendue : https://${dns}` : ''}
+     En attendant, le plan B sans compte : ./lancer-tournoi.command cloudflare\n`);
+      });
+    } catch { /* */ }
+  }, 25000);
   const onData = (buf) => {
     const txt = String(buf);
+    // on affiche ce que dit Tailscale (liens d'activation, erreurs) pour pouvoir agir
+    for (const line of txt.split('\n').map((l) => l.trim()).filter(Boolean)) if (!/^(Available on the internet|Press Ctrl\+C|\|--)/i.test(line)) console.log(`     [tailscale] ${line}`);
     const m = txt.match(/https:\/\/[a-z0-9.-]+\.ts\.net/i);
     if (m && !process.env.PUBLIC_URL && publicUrl !== m[0]) {
       publicUrl = m[0];
-      console.log(`\n  🌍 En ligne (adresse fixe) : ${publicUrl}\n     Les QR codes l'utilisent : vous pouvez les imprimer à l'avance.\n     Sur ce Mac, ouvrez plutôt http://localhost:${PORT} (admin, grand écran) : ça continue même si Internet coupe.\n`);
+      clearTimeout(watchdog);
+      announcePublic(true);
       broadcast({ type: 'net' });
     }
-    if (/funnel is not enabled|not allowed|access denied|requires/i.test(txt)) console.log(`  ⚠️  ${txt.trim()}\n     Activez Funnel pour cet ordinateur dans la console Tailscale (Access controls), puis relancez.`);
+    if (/funnel is not enabled|not allowed|access denied|requires|enable/i.test(txt)) console.log('     → Activez Funnel pour ce Mac (lien ci-dessus, ou console Tailscale → Access controls), puis relancez.');
   };
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
   child.on('exit', (code) => {
     children.delete(child);
+    clearTimeout(watchdog);
     if (stopping || missing) return;
     console.log(`  ⚠️  Tailscale Funnel s'est arrêté (code ${code}). Nouvel essai dans 5 secondes…`);
     setTimeout(startTailscale, 5000);
@@ -663,7 +712,9 @@ function startTailscale() {
 
 function tailscaleMissing() {
   console.log(`
-  ⚠️  La commande « tailscale » est introuvable : ouvrez l'application Tailscale (connectée), ou utilisez « npm run en-ligne » (Cloudflare).
+  ⚠️  Tailscale est introuvable sur ce Mac : les téléphones en 4G ne peuvent pas joindre le serveur.
+     • Installez l'application Tailscale (tailscale.com/download), connectez-vous, puis relancez ;
+     • ou, plan B sans compte : brew install cloudflared, puis ./lancer-tournoi.command cloudflare
 `);
 }
 
