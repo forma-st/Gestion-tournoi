@@ -24,13 +24,13 @@ function shaper(amount) {
 }
 
 /**
- * Trompe de stade : un coup continu de 2 s sur une seule note nette (la 3, 220 Hz), timbre cuivré.
+ * Trompe de stade : un coup continu de 2 s sur une seule note nette (mi 3, 165 Hz), timbre cuivré.
  * Une seule fréquence fondamentale (pas d'accord ni de désaccord, donc pas d'effet « double son »),
  * enrichie par ses harmoniques naturelles ; attaque rapide, fin qui s'éteint en 0,3 s.
  */
 export function horn(dur = 2) {
   if (!soundReady()) return false;
-  const f = 220;
+  const f = 165;
   const t0 = ctx.currentTime + 0.03;
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -14; comp.knee.value = 8; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.2;
