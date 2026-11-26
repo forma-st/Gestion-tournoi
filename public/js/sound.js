@@ -33,7 +33,7 @@ function hornWave() {
 /**
  * Trompe de stade, d'après l'enregistrement :
  * - une seule note, ≈ 268 Hz (un demi-ton sous l'original), qui part un tiers plus haut et glisse vers sa note en 0,5 s ;
- * - timbre de l'original, un peu plus « cuivre plastique » (saturation douce, bosse nasale vers 1,9 kHz) ;
+ * - timbre de l'original, un peu plus cuivré (saturation douce, corps vers 850 Hz, moins de nasillard vers 1,9 kHz) ;
  * - attaque immédiate, son tenu ≈ 1,9 s, puis extinction rapide (−10 dB en 50 ms) et traîne de 0,8 s.
  */
 export function horn() {
@@ -51,14 +51,16 @@ export function horn() {
   env.gain.setValueAtTime(1, t0 + hold);
   env.gain.exponentialRampToValueAtTime(0.32, t0 + hold + 0.05);
   env.gain.setTargetAtTime(0.0001, t0 + hold + 0.05, tail / 5);
-  // touche « cuivre plastique » : légère saturation + bosse nasale vers 1,9 kHz (pavillon en plastique)
+  // touche « cuivre » : saturation douce (éclat des cuivres), corps renforcé vers 850 Hz,
+  // médiums aigus un peu creusés vers 1,9 kHz pour enlever le côté nasillard, aigus adoucis
   const sat = ctx.createWaveShaper();
   const n = 1024, curve = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const x = (i * 2) / n - 1; curve[i] = Math.tanh(1.6 * x) / Math.tanh(1.6); }
+  for (let i = 0; i < n; i++) { const x = (i * 2) / n - 1; curve[i] = Math.tanh(2 * x) / Math.tanh(2); }
   sat.curve = curve; sat.oversample = '4x';
-  const nasal = ctx.createBiquadFilter(); nasal.type = 'peaking'; nasal.frequency.value = 1900; nasal.Q.value = 1.6; nasal.gain.value = 4;
-  const soft = ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 7000;
-  env.connect(sat).connect(nasal).connect(soft).connect(master);
+  const brass = ctx.createBiquadFilter(); brass.type = 'peaking'; brass.frequency.value = 850; brass.Q.value = 0.9; brass.gain.value = 4;
+  const denasal = ctx.createBiquadFilter(); denasal.type = 'peaking'; denasal.frequency.value = 1900; denasal.Q.value = 1.4; denasal.gain.value = -3;
+  const soft = ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 5500;
+  env.connect(sat).connect(brass).connect(denasal).connect(soft).connect(master);
   const o = ctx.createOscillator();
   o.setPeriodicWave(hornWave());
   // glissé mesuré : la note part 33 % plus haut et rejoint sa hauteur (constante 0,13 s)
