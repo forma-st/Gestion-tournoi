@@ -1,5 +1,6 @@
 // Règles du tournoi rédigées automatiquement à partir des réglages, et mode d'emploi de l'application.
 import { SPORTS, RANKING_RULES, scoringFor, slotTime, scheduleStats } from './engine.js';
+import { filRougeOn } from './money.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
 const eur = (n) => (+n || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: +n % 1 ? 2 : 0 });
@@ -67,7 +68,7 @@ export function tournamentRules(t) {
   }
   if (t.charity?.enabled) {
     const c = t.charity;
-    out.push({ icon: '💛', title: `Pour le ${c.label || 'cagnotte'}`, text: `${c.includeFees ? 'Les inscriptions' : ''}${c.includeFees && c.includeBuvette ? ' et ' : ''}${c.includeBuvette ? 'la buvette' : ''}${c.includeFees || c.includeBuvette ? ' sont reversées. ' : ''}${c.pointPledge ? `Chaque point marqué rapporte ${eur(c.pointPledge)}. ` : ''}${c.goal ? `Objectif : ${eur(c.goal)}.` : ''}`.trim() });
+    out.push({ icon: '💛', title: `Pour le ${c.label || 'cagnotte'}`, text: `${c.includeFees ? 'Les inscriptions' : ''}${c.includeFees && c.includeBuvette ? ' et ' : ''}${c.includeBuvette ? 'la buvette' : ''}${c.includeFees || c.includeBuvette ? ' sont reversées. ' : ''}${filRougeOn(c) && +c.pointPledge ? `Chaque point marqué rapporte ${eur(c.pointPledge)}. ` : ''}${c.goal ? `Objectif : ${eur(c.goal)}.` : ''}`.trim() });
   }
   if (t.infos) out.push({ icon: 'ℹ️', title: 'À savoir', text: t.infos });
   return out;

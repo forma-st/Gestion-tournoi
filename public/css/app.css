@@ -490,3 +490,23 @@ table.t tr.chosen-row td:first-child { box-shadow: inset 5px 0 0 var(--court); }
 .flownav>a:first-child{justify-self:start}
 .flownav .flowpos{color:var(--muted,#5b6b60);font-size:.9rem;text-align:center}
 @media (max-width:640px){.flownav{grid-template-columns:1fr}.flownav>a{justify-self:stretch!important;text-align:center}.flownav .flowpos{order:-1}}
+
+/* QR des terrains sur le grand écran : alternés gauche / droite pour qu'un téléphone n'en capte qu'un */
+.tvcourts .court .cqr { padding: 7px; border-radius: 8px; }
+.tvcourts .court:nth-child(odd) .cqr { right: auto; left: 14px; }
+
+/* Rotations repliables (onglet Matchs) : jouées fermées, en cours et à venir ouvertes */
+details.slotbox > summary { cursor: pointer; list-style: none; }
+details.slotbox > summary::-webkit-details-marker { display: none; }
+details.slotbox > summary .chev { display: inline-block; transition: transform .15s; font-size: 1.1rem; opacity: .8; }
+details.slotbox[open] > summary .chev { transform: rotate(90deg); }
+details.slotbox:not([open]) > summary { margin-bottom: .3rem; }
+details.slotbox.done > summary { background: #3c5a45; }
+details.slotbox.done > summary .slot-time { color: #cfe8d6; }
+details.slotbox.cur > summary { box-shadow: 0 0 0 3px var(--ball); }
+details.slotbox > summary .pill.ok { background: rgba(255, 255, 255, .2); }
+details.slotbox > summary .pill.live { background: #d94a2b; color: #fff; }
+details.slotbox:not([open]) > summary { margin: .3rem 0; padding: .3rem .9rem; }
+details.slotbox:not([open]) > summary h3, details.slotbox:not([open]) > summary .slot-time { font-size: 1.1rem; }
+details.slotbox:not([open]) > summary .btn { min-height: 0; padding: .2rem .6rem; font-size: .8rem; }
+details.slotbox[open] + .pill, details.slotbox[open] + details.slotbox { margin-top: 1rem; }

@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { activeSponsors, sponsorBadge, html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
-import { BYE, slotTime } from '../engine.js';
+import { BYE, slotTime, slotTitle } from '../engine.js';
 import { matchRow, rankingsView, startTimers, standingsTable } from './components.js';
 import { charityCard, declareDonation } from './bar.js';
 import { tournamentRules, appSteps, hasStarted } from '../rules.js';
@@ -116,7 +116,7 @@ function matches(ctx, role) {
     ${help}
     ${me ? html`<div class="stack" style="margin-bottom:1rem">${play ? card(play, false) : html`<div class="mycard"><b>Plus de match prévu pour l’instant.</b><span class="muted">Consultez le classement ou le tableau final.</span></div>`}${ref ? card(ref, true) : ''}${myPool(ctx, me)}</div>` : ''}
     <div class="filters">${Object.entries({ ...(me ? { mine: 'Mes matchs' } : {}), all: 'Tous', live: 'En cours', next: 'À venir', done: 'Terminés' }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div>
-    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>Rotation ${+s + 1}</h3><span class="slot-time">${slotTime(t, +s)}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
+    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>${slotTitle(t, +s)}</h3><span class="slot-time">${slotTime(t, +s)}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
 }
 
 /** La poule de l'équipe (phase en cours) : classement et matchs restants. */

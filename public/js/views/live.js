@@ -1,7 +1,7 @@
 import { store } from '../store.js';
 import { activeSponsors, html, raw, toStr, euros, sides, matchTime, teamName, sportOf, scoreText, qrSvg, logo, $ } from '../ui.js';
-import { slotTime, finalPodium, currentSlot, scoringFor } from '../engine.js';
-import { courtTile, startTimers, podiumView, watchHorn, soundButton, onSoundClick } from './components.js';
+import { slotTime, finalPodium, currentSlot, scoringFor, slotTitle, isFinalsSlot } from '../engine.js';
+import { courtsInPlay, courtTile, startTimers, podiumView, watchHorn, soundButton, onSoundClick } from './components.js';
 import { unlock, soundWanted } from '../sound.js';
 import { charityOf } from './bar.js';
 import { tournamentRules, appSteps, hasStarted } from '../rules.js';
@@ -12,7 +12,7 @@ let rotTimer = null;
 export async function view(ctx) {
   const { t } = ctx;
   const only = ctx.route.query.terrain;
-  const courts = t.courts.filter((c) => c.active !== false && (!only || c.id === only));
+  const courts = only ? t.courts.filter((c) => c.id === only) : courtsInPlay(ctx);
   const panels = buildPanels(ctx);
   const p = panels[panelIdx % panels.length];
   const ch = t.charity?.enabled ? charityOf(t) : null;
@@ -27,7 +27,7 @@ export async function view(ctx) {
     bodyClass: 'tv',
     html: html`<div class="tvwrap">
       <header class="tvhead"><span style="width:6vh;display:block">${logo}</span><h1>${t.name}</h1>
-        ${ch ? html`<div style="min-width:26vw"><div style="font-size:1.8vh;opacity:.75">${t.charity.label}${ch.goal ? ` · objectif ${euros(ch.goal)}` : ''}${t.charity.pointPledge ? ` · ${ch.points} points = ${euros(ch.pledge)}` : ''}</div><div class="num" style="font-size:4.4vh;color:var(--ball)">${euros(ch.total)}</div>${ch.goal ? html`<div class="places"><i style="width:${ch.pct}%"></i></div>` : ''}</div>` : ''}
+        ${ch ? html`<div style="min-width:26vw"><div style="font-size:1.8vh;opacity:.75">${t.charity.label}${ch.goal ? ` · objectif ${euros(ch.goal)}` : ''}${ch.pledgeOn ? ` · ${ch.points} points = ${euros(ch.pledge)}` : ''}</div><div class="num" style="font-size:4.4vh;color:var(--ball)">${euros(ch.total)}</div>${ch.goal ? html`<div class="places"><i style="width:${ch.pct}%"></i></div>` : ''}</div>` : ''}
         ${rotClock(t)}<span class="clock" data-clock></span>${soundButton('tvsound')}</header>
       <div class="tvmain" style="${only ? 'grid-template-columns:1fr' : ''}">
         <section class="tvcourts" aria-label="Terrains">${courts.map((c) => courtTile(ctx, c, { big: true, qr: c.token || t.openScoring ? `${store.baseUrl()}#/court/${t.id}/${c.id}${c.token ? `?k=${c.token}` : ''}` : '' }))}</section>
@@ -109,8 +109,8 @@ function rotClock(t) {
   const slot = currentSlot(t);
   if (slot == null) return '';
   const m = t.matches.find((x) => x.slot === slot && x.status === 'live' && x.timer);
-  if (!m) return html`<div style="text-align:right;font-size:2vh;opacity:.8">Rotation ${slot + 1}<br>${slotTime(t, slot)}</div>`;
-  return html`<div style="text-align:right"><div style="font-size:1.8vh;opacity:.75">Rotation ${slot + 1}</div><div class="num" style="font-size:6vh;line-height:1;color:var(--ball)" data-timer="${JSON.stringify(m.timer)}" data-dur="${scoringFor(t, m).durationMin}">⏱</div></div>`;
+  if (!m) return html`<div style="text-align:right;font-size:2vh;opacity:.8">${slotTitle(t, slot)}<br>${slotTime(t, slot)}</div>`;
+  return html`<div style="text-align:right"><div style="font-size:1.8vh;opacity:.75">${slotTitle(t, slot)}</div><div class="num" style="font-size:6vh;line-height:1;color:var(--ball)" data-timer="${JSON.stringify(m.timer)}" data-dur="${scoringFor(t, m).durationMin}">⏱</div></div>`;
 }
 
 function buildPanels(ctx) {
@@ -122,7 +122,7 @@ function buildPanels(ctx) {
   const up = t.matches.filter((m) => m.status === 'scheduled').sort((a, b) => a.slot - b.slot).slice(0, 8);
   if (up.length) {
     const slots = [...new Set(up.map((m) => m.slot))].slice(0, 2);
-    out.push({ title: 'Prochains matchs', body: html`${slots.map((sl) => html`<div class="upblock"><div class="uprot"><b>Rotation ${sl + 1}</b><span class="num">${slotTime(t, sl)}</span></div>
+    out.push({ title: 'Prochains matchs', body: html`${slots.map((sl) => html`<div class="upblock"><div class="uprot"><b>${slotTitle(t, sl)}</b><span class="num">${slotTime(t, sl)}</span></div>
       ${t.matches.filter((m) => m.slot === sl && m.status === 'scheduled').sort((a, b) => t.courts.findIndex((c) => c.id === a.courtId) - t.courts.findIndex((c) => c.id === b.courtId)).map((m) => {
         const s = sides(t, m, resolved); const c = t.courts.find((x) => x.id === m.courtId);
         return html`<div class="up2"><span class="ccourt" style="--c:${c?.color}">${c?.name.replace(/^Terrain\s*/i, 'T')} ${sportOf(c).icon}</span><span><b>${s.nameA}</b> – <b>${s.nameB}</b>${s.referee ? html`<br><small style="opacity:.65">Arbitre : ${teamName(t, s.referee)}</small>` : ''}</span></div>`;
@@ -143,7 +143,7 @@ function buildPanels(ctx) {
     out.push({ title: `Cagnotte ${t.charity.label || ''}`, body: html`<div class="num" style="font-size:8vh;color:var(--ball);line-height:1">${euros(ch.total)}</div>
       ${ch.next ? html`<p style="font-size:2.3vh;margin:1vh 0">Prochain défi à <b style="color:var(--ball)">${euros(ch.next.amount)}</b> : ${ch.next.label}</p>` : ''}
       ${ch.reached.length ? html`<p style="font-size:1.9vh;opacity:.8;margin:0 0 1vh">✔ ${ch.reached.map((m) => m.label).join(' · ')}</p>` : ''}
-      ${t.charity.pointPledge ? html`<p style="font-size:2.1vh;margin:0 0 1vh">🏐 Chaque point = ${euros(t.charity.pointPledge)}${t.charity.pledgeSponsor ? ` (${t.charity.pledgeSponsor})` : ''} : ${ch.points} points, ${euros(ch.pledge)}</p>` : ''}
+      ${ch.pledgeOn ? html`<p style="font-size:2.1vh;margin:0 0 1vh">🏐 Chaque point = ${euros(t.charity.pointPledge)}${t.charity.pledgeSponsor ? ` (${t.charity.pledgeSponsor})` : ''} : ${ch.points} points, ${euros(ch.pledge)}</p>` : ''}
       <div class="tvdon">${ch.feed.slice(0, 5).map((d) => html`<div><span>💛 ${d.name}${d.message ? html` <i style="opacity:.7">« ${d.message} »</i>` : ''}</span><b>${euros(d.amount)}</b></div>`)}</div>
       <div class="row" style="gap:1.2vw;margin-top:1.5vh;align-items:center;background:#fff;color:var(--ink);border-radius:1.2vh;padding:1vh 1vw"><div style="width:16vh;flex:none">${qrSvg(`${store.baseUrl()}#/don/${t.id}`)}</div><div style="font-size:2.2vh"><b style="font-family:var(--display);font-size:2.8vh">Scannez pour donner</b><br>Paiement au club, qui reverse au ${t.charity.label || 'profit de la cause'}</div></div>` });
   }

@@ -1,5 +1,5 @@
 // Service worker : l'application fonctionne hors ligne une fois ouverte une première fois.
-const CACHE = 'rotation-v11';
+const CACHE = 'rotation-v12';
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'js/app.js', 'js/engine.js', 'js/money.js', 'js/club.js', 'js/time.js', 'js/rules.js', 'js/sound.js', 'js/views/bar.js', 'js/views/wizard.js', 'js/store.js', 'js/ui.js', 'js/demo.js', 'vendor/qrcode.mjs',
   'js/views/shell.js', 'js/views/home.js', 'js/views/settings.js', 'js/views/components.js', 'js/views/admin.js',

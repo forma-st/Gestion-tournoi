@@ -311,3 +311,20 @@ test('archivage : inscriptions fermées puis rétablies au désarchivage', () =>
   E.setArchived(t, false);
   assert.equal(t.archived, false); assert.equal(t.registration.open, true); assert.equal(t.archivedAt, undefined);
 });
+
+test('titres des rotations : numéro en poules, nom du tour en phase finale', () => {
+  let t = buildDemo('fluo');
+  t.format = { type: 'pools', pools: 4, qualifiers: 2, finals: 'single', thirdPlace: true };
+  t = E.buildSchedule(t);
+  const slots = [...new Set(t.matches.map((m) => m.slot))].sort((a, b) => a - b);
+  assert.equal(E.slotTitle(t, slots[0]), 'Rotation 1');
+  const titles = slots.map((s) => E.slotTitle(t, s));
+  assert.ok(titles.includes('1/4 de finale'));
+  assert.ok(titles.includes('1/2 finale'));
+  assert.match(titles.at(-1), /Finale/);
+  assert.equal(E.isFinalsSlot(t, slots[0]), false);
+  assert.equal(E.isFinalsSlot(t, slots.at(-1)), true);
+  let f = E.buildSchedule(buildDemo('fluo'));
+  const fs = [...new Set(f.matches.map((m) => m.slot))].sort((a, b) => a - b);
+  assert.match(E.slotTitle(f, fs.at(-2)), /^Places \d+ à \d+$/);
+});

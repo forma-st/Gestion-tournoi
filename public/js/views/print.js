@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { html, raw, fmtDate, sides, matchTime, teamName, sportOf, qrSvg, phaseLabel } from '../ui.js';
-import { scoringFor, slotTime } from '../engine.js';
+import { scoringFor, slotTime, slotTitle } from '../engine.js';
 import { rankingsView } from './components.js';
 import { tournamentRules, appSteps } from '../rules.js';
 
@@ -37,7 +37,7 @@ export async function view(ctx) {
       const marks = sc.mode === 'time' ? 30 : Math.max(sc.pointsPerSet || 25, sc.tiebreakPoints || 15) + 5;
       const grid = () => html`<div class="tally">${Array.from({ length: marks }, (_, i) => html`<span>${i + 1}</span>`)}</div>`;
       return html`<div class="papersheet">
-        <div class="ps-head"><b>${m ? `Rotation ${m.slot + 1} · ${matchTime(t, m)}` : 'Rotation ……  · Heure ……'}</b>
+        <div class="ps-head"><b>${m ? `${slotTitle(t, m.slot)} · ${matchTime(t, m)}` : 'Rotation ……  · Heure ……'}</b>
           <span>${c ? html`<span class="ccourt" style="--c:${c.color}">${c.name} ${sportOf(c).icon} ${sportOf(c).label}</span>` : 'Terrain …………  Sport …………'}</span>
           <span>${m ? phaseLabel(t, m) : ''}${s?.referee ? ` · Arbitre : ${teamName(t, s.referee)}` : m ? '' : ' Arbitre : …………………'}</span></div>
         <p class="ps-rule">${sc.mode === 'time' ? `Match de ${sc.durationMin} minutes : barrez un numéro à chaque point (ou but) marqué. Score final = dernier numéro barré.` : `${sc.setsToWin > 1 ? `${sc.setsToWin} sets gagnants de ${sc.pointsPerSet} points` : `1 set de ${sc.pointsPerSet} points`}${sc.winBy2 !== false ? ', 2 points d’écart' : ''} : barrez un numéro à chaque point. Une ligne par set.`}</p>
@@ -48,7 +48,7 @@ export async function view(ctx) {
         <div class="ps-sign"><span>Vainqueur : …………………………</span><span>Signature capitaine A : ……………</span><span>Signature capitaine B : ……………</span></div>
       </div>`;
     };
-    body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${t.name} : ${blank ? 'feuilles de match vierges' : rot != null ? `feuilles de la rotation ${+rot + 1}` : 'toutes les feuilles de match'}</h2>
+    body = html`<div style="max-width:1000px;margin:0 auto;padding:0 16px"><h2 class="noprint">${t.name} : ${blank ? 'feuilles de match vierges' : rot != null ? `feuilles : ${slotTitle(t, +rot)}` : 'toutes les feuilles de match'}</h2>
       <p class="noprint hint">${blank ? '3 feuilles vierges par page, pour un match imprévu ou un match de remplacement.' : 'Une feuille par match. Les scores notés sur papier se reportent ensuite dans l’onglet Matchs (bouton Score), ou en scannant le QR de la feuille.'}</p>
       ${ms.map(sheet)}</div>`;
   } else if (kind === 'regles') {
