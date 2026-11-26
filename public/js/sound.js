@@ -25,7 +25,7 @@ function shaper(amount) {
 
 /**
  * Klaxon à gaz de supporter (corne de brume en bombe) : un seul coup continu d'environ 1,6 s,
- * aigu et nasillard. Deux membranes proches (≈ 415 et 440 Hz) battent entre elles, la saturation
+ * puissant et nasillard. Deux membranes proches (≈ 294 et 311 Hz) battent entre elles, la saturation
  * donne le côté criard, et la note baisse un peu à la fin quand la pression chute.
  */
 export function horn(dur = 1.6) {
@@ -36,9 +36,9 @@ export function horn(dur = 1.6) {
   const master = ctx.createGain();
   master.gain.value = 0.8;
   master.connect(comp).connect(ctx.destination);
-  // coloration « pavillon en plastique » : bosse vers 2,4 kHz, aigus coupés au-delà de 6 kHz
-  const peak = ctx.createBiquadFilter(); peak.type = 'peaking'; peak.frequency.value = 2400; peak.Q.value = 1.4; peak.gain.value = 9;
-  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 300;
+  // coloration « pavillon en plastique » : bosse vers 1,8 kHz, aigus coupés au-delà de 6 kHz
+  const peak = ctx.createBiquadFilter(); peak.type = 'peaking'; peak.frequency.value = 1800; peak.Q.value = 1.4; peak.gain.value = 9;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6000;
   const env = ctx.createGain();
   env.gain.setValueAtTime(0, t0);
@@ -46,7 +46,7 @@ export function horn(dur = 1.6) {
   env.gain.setValueAtTime(1, t0 + dur - 0.12);
   env.gain.linearRampToValueAtTime(0, t0 + dur);
   env.connect(shaper(60)).connect(hp).connect(peak).connect(lp).connect(master);
-  for (const [f, g, type] of [[415, 0.45, 'sawtooth'], [440, 0.4, 'square'], [830, 0.12, 'sawtooth']]) {
+  for (const [f, g, type] of [[294, 0.45, 'sawtooth'], [311, 0.4, 'square'], [588, 0.12, 'sawtooth']]) {
     const o = ctx.createOscillator();
     o.type = type;
     o.frequency.setValueAtTime(f * 0.92, t0); // petit « couac » au départ
