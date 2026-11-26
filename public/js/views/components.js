@@ -1,6 +1,6 @@
 import { qrSvg } from '../ui.js';
 import { elapsedOf } from '../time.js';
-import { hornOnce, soundReady, unlock, horn } from '../sound.js';
+import { hornOnce, soundReady, unlock, horn, useSound } from '../sound.js';
 import { html, raw, sides, scoreText, matchTime, phaseLabel, teamName, sportOf, contrastInk, esc } from '../ui.js';
 import { scoringFor, matchResult, BYE, finalPodium, POOL_LETTERS, currentSlot, isFinalsSlot } from '../engine.js';
 
@@ -222,6 +222,7 @@ export { POOL_LETTERS };
 
 /** Trompe de stade à la fin du temps de la rotation en cours (grand écran, administration). Renvoie l'arrêt. */
 export function watchHorn(t) {
+  useSound(t.sound?.data); // son choisi pour ce tournoi, sinon la trompe par défaut
   const check = () => {
     const live = t.matches.filter((m) => m.status === 'live' && m.timer?.running);
     for (const m of live) {
