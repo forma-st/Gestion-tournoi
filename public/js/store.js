@@ -148,7 +148,10 @@ export const store = {
   async fetchDoc(id) {
     {
       try {
-        const t = await this.api(`t/${id}`, {}, id);
+        // Hébergement Vercel, simple spectateur : on demande la version précise, que le CDN met en cache pour tout le monde
+        const ver = this.lastVer[id];
+        const viewer = !this.realtime && ver != null && !this.pin(id) && !LS.get('rot:adminKey', '');
+        const t = await this.api(viewer ? `t/${id}/pub/${ver}` : `t/${id}`, {}, viewer ? undefined : id);
         LS.set(`rot:cache:${id}`, t);
         this.lastVer[id] = t.version;
         return this.applyOutbox(t);
