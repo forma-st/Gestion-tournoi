@@ -1,5 +1,5 @@
 // Règles du tournoi rédigées automatiquement à partir des réglages, et mode d'emploi de l'application.
-import { SPORTS, RANKING_RULES, scoringFor, slotTime, scheduleStats } from './engine.js';
+import { SPORTS, RANKING_RULES, scoringFor, scheduleStats } from './engine.js';
 import { filRougeOn } from './money.js';
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;

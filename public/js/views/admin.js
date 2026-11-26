@@ -1,15 +1,15 @@
 import { store } from '../store.js';
-import { imageToDataUrl, html, raw, toStr, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$, esc } from '../ui.js';
-import { setArchived, buildSchedule, scheduleStats, scoringFor, setTarget, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation, slotTitle, isFinalsSlot } from '../engine.js';
+import { imageToDataUrl, html, raw, toast, modal, confirmBox, fmtDate, euros, plural, sides, scoreText, matchTime, teamName, sportOf, qrSvg, download, $, $$ } from '../ui.js';
+import { setArchived, buildSchedule, scheduleStats, scoringFor, makeTeam, slotTime, SPORTS, BYE, pin4, uid, postponeTeam, currentSlot, startRotation, toggleRotation, slotTitle, isFinalsSlot } from '../engine.js';
 import { clock, elapsedOf } from '../time.js';
 import { shell } from './shell.js';
-import { applySportRule, sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, PROVIDERS, FORMATS } from './settings.js';
+import { applySportRule, sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
 import { compareTable } from './home.js';
-import { matchRow, courtsInPlay, courtTile, rankingsView, startTimers, STATUS, watchHorn, soundButton, onSoundClick } from './components.js';
+import { matchRow, courtsInPlay, courtTile, rankingsView, startTimers, watchHorn, soundButton, onSoundClick } from './components.js';
 import { unlock, soundWanted, horn, useSound, checkSoundFile } from '../sound.js';
 import { posterCanvas, drawPoster } from './promo.js';
 import { adminBuvette, adminCagnotte, barActions, showCard } from './bar.js';
-import { feesSummary, teamDue, teamFee, barOption, issueTeamCard, findCard, charityTotals } from '../money.js';
+import { feesSummary, teamDue, barOption, issueTeamCard, findCard, charityTotals } from '../money.js';
 import { LEVELS, teamOptions, balanceTeams, applyTeams, suggestFormats, newPlayer } from '../club.js';
 
 let drawSeed = 0;
@@ -139,7 +139,7 @@ const hasResults = (t) => t.matches.some((m) => m.status === 'done' || m.status 
 // ------------------------------------------------------------------ onglets
 const PANELS = {
   apercu(ctx) {
-    const { t, resolved } = ctx;
+    const { t } = ctx;
     const playable = t.matches.filter((m) => m.status !== 'bye');
     const done = playable.filter((m) => m.status === 'done').length;
     const live = playable.filter((m) => m.status === 'live').length;
@@ -242,7 +242,6 @@ const PANELS = {
         const players = x.players || [];
         const present = x.present || [];
         const n = present.length;
-        const enough = n >= (r.minPlayers || 1);
         const due = teamDue(t, x);
         const paid = x.payment === 'paid' || x.payment === 'onsite' || x.payment === 'free';
         const nm = nextOf(x.id);
@@ -774,9 +773,8 @@ async function onClick(ctx, e) {
     }
     case 'rot-start': case 'rot-pause': case 'rot-resume': {
       const slot = +b.dataset.slot, now = clock.now();
-      let n = 0;
       await save(ctx, (d) => {
-        if (act === 'rot-start') n = startRotation(d, slot, now).length;
+        if (act === 'rot-start') startRotation(d, slot, now);
         else toggleRotation(d, slot, now, act === 'rot-resume');
       }, act === 'rot-start' ? `${slotTitle(ctx.t, slot)} : c’est parti` : act === 'rot-pause' ? 'Chronos en pause' : 'Chronos relancés');
       return rr();
@@ -876,7 +874,6 @@ async function onClick(ctx, e) {
 }
 
 async function editTeam(ctx, x) {
-  const { t } = ctx;
   const r = await modal({
     title: x ? `Modifier « ${x.name} »` : 'Nouvelle équipe',
     body: html`<label class="f">Nom de l’équipe<input type="text" name="name" required maxlength="40" value="${x?.name || ''}"></label>

@@ -105,7 +105,7 @@ export function standingsTable(ctx, L, { me, compact = false, rows: given } = {}
 
 /** Arbre d'un tableau (principal, consolante, double élimination). */
 export function bracketView(ctx, bracketId, { me } = {}) {
-  const { t, resolved } = ctx;
+  const { t } = ctx;
   const ms = t.matches.filter((m) => m.phase === 'bracket' && m.bracketId === bracketId);
   if (!ms.length) return '';
   const groups = [['W', 'Tableau principal'], ['C', ''], ['L', 'Tableau de repêchage'], ['GF', 'Grande finale']];

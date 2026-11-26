@@ -1,7 +1,7 @@
 // Rotation — routeur et coquille de l'application.
 import { store } from './store.js';
 import { resolve } from './engine.js';
-import { html, raw, toStr, toast, $ } from './ui.js';
+import { html, raw, toStr, toast } from './ui.js';
 import { shell, netBadge } from './views/shell.js';
 import * as home from './views/home.js';
 import * as admin from './views/admin.js';

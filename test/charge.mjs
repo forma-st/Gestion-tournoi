@@ -20,24 +20,49 @@ let BASE = arg('url', '');
 const KEY = arg('cle', ''); // clé organisateur (création du tournoi de test sur un serveur protégé)
 let srv, dataDir;
 
-const stats = { req: 0, err: 0, bytes: 0, score: [], doc: [], errors: {} };
+const stats = { req: 0, err: 0, bytes: 0, score: [], doc: [], errors: {}, cdn: {} };
 const pct = (a, p) => (a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))] : 0);
 const agentHttp = new http.Agent({ keepAlive: true, maxSockets: 512 });
 const agentHttps = new https.Agent({ keepAlive: true, maxSockets: 512 });
 
+// Derrière un proxy (variable HTTPS_PROXY), Node ne le gère que pour fetch : on passe alors par fetch
+const VIA_FETCH = () => !!(process.env.HTTPS_PROXY || process.env.https_proxy) && BASE.startsWith('https:');
+const countCdn = (method, u, vc) => {
+  // hébergement Vercel : part des réponses servies par le cache du CDN (sans appeler le serveur)
+  if (vc && method === 'GET') { const k = /\/v$/.test(u.pathname) ? 'version' : /\/pub\//.test(u.pathname) ? 'tournoi' : 'autre'; (stats.cdn[k] ||= { HIT: 0, autre: 0 })[vc === 'HIT' ? 'HIT' : 'autre']++; }
+};
+
+async function requestFetch(method, u, body, headers, timeout) {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(u, { method, headers: { ...(KEY ? { 'x-admin-key': KEY } : {}), ...(body ? { 'content-type': 'application/json' } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeout) });
+    const txt = await r.text();
+    stats.req++; stats.bytes += +(r.headers.get('content-length') || 0) || Math.round(txt.length / 6); // compressé : estimation si la taille n'est pas donnée
+    countCdn(method, u, r.headers.get('x-vercel-cache'));
+    let json = null; try { json = JSON.parse(txt); } catch { /* */ }
+    if (r.status >= 400) { stats.err++; stats.errors[r.status] = (stats.errors[r.status] || 0) + 1; }
+    return { status: r.status, json, ms: Date.now() - t0 };
+  } catch (e) {
+    stats.req++; stats.err++; stats.errors[e.message] = (stats.errors[e.message] || 0) + 1;
+    return { status: 0, ms: Date.now() - t0 };
+  }
+}
+
 /** Requête HTTP brute (pour mesurer les octets réellement transférés, compressés). */
-function request(method, p, body, { timeout = 15000 } = {}) {
+function request(method, p, body, { timeout = 15000, headers = {} } = {}) {
   const u = new URL(p, BASE);
+  if (VIA_FETCH()) return requestFetch(method, u, body, headers, timeout);
   const lib = u.protocol === 'https:' ? https : http;
   return new Promise((resolve) => {
     const t0 = Date.now();
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = lib.request(u, { method, agent: u.protocol === 'https:' ? agentHttps : agentHttp, timeout, headers: { 'accept-encoding': 'gzip', ...(KEY ? { 'x-admin-key': KEY } : {}), ...(data ? { 'content-type': 'application/json', 'content-length': data.length } : {}) } }, (res) => {
+    const req = lib.request(u, { method, agent: u.protocol === 'https:' ? agentHttps : agentHttp, timeout, headers: { 'accept-encoding': 'gzip', ...(KEY ? { 'x-admin-key': KEY } : {}), ...(data ? { 'content-type': 'application/json', 'content-length': data.length } : {}), ...headers } }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
         const raw = Buffer.concat(chunks);
         stats.req++; stats.bytes += raw.length;
+        countCdn(method, u, res.headers['x-vercel-cache']);
         let txt = raw;
         try { if (res.headers['content-encoding'] === 'gzip') txt = zlib.gunzipSync(raw); } catch { /* */ }
         let json = null; try { json = JSON.parse(txt.toString()); } catch { /* */ }
@@ -54,6 +79,7 @@ function request(method, p, body, { timeout = 15000 } = {}) {
 
 /** Spectateur (téléphone sur le portail, grand écran) : connexion en direct, relit le tournoi à chaque nouvelle (au plus toutes les 0,7 s). */
 function viewer(id, stopAt) {
+  if (VIA_FETCH()) return pollViewer(id, stopAt);
   return new Promise((resolve) => {
     const u = new URL('api/events', BASE);
     const lib = u.protocol === 'https:' ? https : http;
@@ -88,6 +114,18 @@ function viewer(id, stopAt) {
   });
 }
 
+/** Spectateur sur un hébergement sans connexion permanente (Vercel) : version toutes les 3 s, puis cette version précise. */
+async function pollViewer(id, stopAt) {
+  let seen = null;
+  await new Promise((r) => setTimeout(r, Math.random() * 3000)); // les téléphones ne sont pas synchronisés
+  while (Date.now() < stopAt) {
+    const r = await request('GET', `api/t/${id}/v`);
+    const v = r.json?.version;
+    if (v != null && v !== seen) { seen = v; const d = await request('GET', `api/t/${id}/pub/${v}`); if (d.status === 200) stats.doc.push(d.ms); }
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+}
+
 /** Arbitre : marque des points au hasard, envoie comme le téléphone (base → sets, identifiant d'envoi, un envoi à la fois). */
 async function referee(id, m, stopAt, counts, who) {
   let sent = [[0, 0]], sets = [[0, 0]], n = 0;
@@ -113,19 +151,12 @@ async function organizer(id, pin, stopAt) {
   while (Date.now() < stopAt) {
     await new Promise((r) => setTimeout(r, 4000));
     for (let k = 0; k < 5; k++) {
-      const cur = await request('GET', `api/t/${id}`, null);
+      const cur = await request('GET', `api/t/${id}`, null, { headers: { 'x-admin-pin': pin } });
       const doc = cur.json; if (!doc) break;
       doc.announcements = [...(doc.announcements || []), { id: String(Date.now()), text: 'Annonce de test', at: new Date().toISOString() }].slice(-5);
-      const u = new URL(`api/t/${id}`, BASE);
-      const r = await new Promise((resolve) => {
-        const data = Buffer.from(JSON.stringify({ baseVersion: doc.version, doc }));
-        const lib = u.protocol === 'https:' ? https : http;
-        const req = lib.request(u, { method: 'PUT', headers: { 'content-type': 'application/json', 'content-length': data.length, 'x-admin-pin': pin } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
-        req.on('error', () => resolve(0)); req.write(data); req.end();
-      });
-      stats.req++;
-      if (r === 200) break;
-      if (r !== 409) { stats.err++; stats.errors[`PUT ${r}`] = (stats.errors[`PUT ${r}`] || 0) + 1; break; }
+      const r = (await request('PUT', `api/t/${id}`, { baseVersion: doc.version, doc }, { headers: { 'x-admin-pin': pin } })).status;
+      if (r === 409) { stats.err--; stats.errors[409]--; continue; } // conflit : on rejoue, ce n'est pas une erreur
+      break;
     }
   }
 }
@@ -138,7 +169,7 @@ async function main() {
     srv = spawn(process.execPath, ['server.js'], { cwd: path.join(path.dirname(new URL(import.meta.url).pathname), '..'), env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, HOST: '127.0.0.1', NO_CAFFEINATE: '1', ADMIN_KEY: '' }, stdio: 'ignore' });
     for (let i = 0; i < 50; i++) { const r = await request('GET', 'api/ping'); if (r.status === 200) break; await new Promise((r2) => setTimeout(r2, 100)); }
   }
-  Object.assign(stats, { req: 0, err: 0, bytes: 0, score: [], doc: [], errors: {} }); // le démarrage ne compte pas
+  Object.assign(stats, { req: 0, err: 0, bytes: 0, score: [], doc: [], errors: {}, cdn: {} }); // le démarrage ne compte pas
   if (!BASE.endsWith('/')) BASE += '/';
   const t = buildSchedule(buildDemo('multisport'));
   t.id = `charge-${Date.now().toString(36)}`;
@@ -166,6 +197,12 @@ async function main() {
   console.log(`  Envoi d'un point : médiane ${pct(stats.score, 0.5)} ms · 95 % sous ${pct(stats.score, 0.95)} ms · max ${Math.max(0, ...stats.score)} ms (${stats.score.length} envois)`);
   console.log(`  Relecture du tournoi : médiane ${pct(stats.doc, 0.5)} ms · 95 % sous ${pct(stats.doc, 0.95)} ms (${stats.doc.length} relectures)`);
   console.log('  Scores :'); for (const l of lost) console.log(`    ${l.ok ? '✓' : '✗'} ${l.terrain} : attendu ${l.attendu}, enregistré ${l.enregistré}`);
+  for (const [k, v] of Object.entries(stats.cdn)) console.log(`  Cache Vercel (${k}) : ${v.HIT} servies par le cache sur ${v.HIT + v.autre} (${Math.round((100 * v.HIT) / Math.max(1, v.HIT + v.autre))} %)`);
+  // serveur existant : on supprime le tournoi de test
+  if (!srv) {
+    const d = (await request('DELETE', `api/t/${t.id}`, null, { headers: { 'x-admin-pin': t.adminPin } })).status;
+    console.log(d === 200 ? '  Tournoi de test supprimé.' : `  ⚠️  Tournoi de test « ${t.id} » non supprimé (${d}) : supprimez-le depuis l'accueil.`);
+  }
   const ok = lost.every((l) => l.ok);
   console.log(ok ? '\n  ✅ Aucun point perdu.\n' : '\n  ❌ Des points ont été perdus.\n');
   srv?.kill();

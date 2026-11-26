@@ -1,9 +1,9 @@
 import { store } from '../store.js';
-import { activeSponsors, sponsorBadge, html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
+import { activeSponsors, sponsorBadge, html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon } from '../ui.js';
 import { BYE, slotTime, slotTitle } from '../engine.js';
 import { matchRow, rankingsView, startTimers, standingsTable } from './components.js';
 import { charityCard, declareDonation } from './bar.js';
-import { tournamentRules, appSteps, hasStarted } from '../rules.js';
+import { tournamentRules, appSteps } from '../rules.js';
 
 const TABS = [['matchs', 'Matchs', 'list'], ['classement', 'Classement', 'trophy'], ['infos', 'Infos', 'info'], ['buvette', 'Buvette', 'cup']];
 
@@ -121,7 +121,7 @@ function matches(ctx, role) {
 
 /** La poule de l'équipe (phase en cours) : classement et matchs restants. */
 function myPool(ctx, me) {
-  const { t, resolved, standings2 = {}, members2 = {} } = ctx;
+  const { t, standings2 = {}, members2 = {} } = ctx;
   let P = Object.entries(members2).find(([, mem]) => mem.includes(me))?.[0];
   let rows = P ? standings2[P] : null, phase = 'pool2';
   if (!P) { P = Object.entries(t.pools || {}).find(([, ids]) => ids.includes(me))?.[0]; rows = P ? ctx.standings[P] : null; phase = 'pool'; }
@@ -140,7 +140,6 @@ function rulesCard(t) {
 
 function infos(ctx, role) {
   const { t } = ctx;
-  const ch = t.charity;
   return html`<div class="stack">
     ${charityCard(t)}
     ${rulesCard(t)}
