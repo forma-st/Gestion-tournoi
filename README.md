@@ -53,6 +53,11 @@ Variables utiles : `PORT`, `DATA_DIR`, `PUBLIC_URL`, `ADMIN_KEY`, `TUNNEL_TOKEN`
 
 `public/` peut aussi être ouvert depuis n’importe quel hébergement statique. Les données restent alors dans le navigateur : pratique pour préparer un tournoi ou faire une démo, mais les téléphones ne partagent pas les scores.
 
+### Publier une nouvelle version
+
+Le code est gardé sur les téléphones et sur le Mac : il n'est retéléchargé que lorsqu'il change, et seulement les fichiers modifiés.
+Avant chaque publication, lancez `npm run version`, qui recalcule les empreintes dans `public/sw.js`. `npm test` échoue si on l'oublie.
+
 ### Tests
 
 ```bash

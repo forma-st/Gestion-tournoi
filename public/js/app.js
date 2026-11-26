@@ -146,8 +146,20 @@ function refreshNet() {
 setInterval(refreshNet, 5000);
 render();
 
+// Le code est gardé sur l'appareil (service worker) et n'est retéléchargé qu'à la publication d'une nouvelle version.
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => { /* facultatif */ });
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    // écrans allumés toute la soirée (grand écran, admin) : on regarde de temps en temps s'il y a une nouvelle version
+    setInterval(() => reg.update().catch(() => {}), 30 * 60000);
+  }).catch(() => { /* facultatif */ });
+  // Nouvelle version installée pendant que la page est ouverte
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // première visite : rien à faire
+    const r = parseRoute();
+    if (r.name === 'live') location.reload(); // grand écran : on passe à la nouvelle version tout de suite
+    else toast('Nouvelle version de l’application installée : elle sera utilisée au prochain chargement de la page');
+  });
 }
 
 // Annonces : affichées en bandeau sur toutes les pages publiques (sans requête supplémentaire)

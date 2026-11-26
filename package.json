@@ -10,7 +10,8 @@
     "en-ligne:tailscale": "node server.js --tailscale",
     "test": "node --test test/*.test.mjs",
     "tournoi": "./lancer-tournoi.command",
-    "test:charge": "node test/charge.mjs"
+    "test:charge": "node test/charge.mjs",
+    "version": "node scripts/version.mjs"
   },
   "engines": {
     "node": "22.x"
