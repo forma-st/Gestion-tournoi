@@ -21,8 +21,49 @@ export function charityCard(t, { donate = true } = {}) {
     ${c.pointPledge ? html`<p style="margin:0">🏐 Chaque point marqué rapporte ${euros(c.pointPledge)}${c.pledgeSponsor ? ` grâce à ${c.pledgeSponsor}` : ''} : <b>${x.points} points</b> marqués, soit <b>${euros(x.pledge)}</b>.</p>` : ''}
     ${x.next ? html`<p style="margin:0">Prochain palier : <b>${euros(x.next.amount)}</b> → ${x.next.label}</p>` : ''}
     ${x.reached.length ? html`<p style="margin:0;opacity:.85">Défis débloqués : ${x.reached.map((m) => m.label).join(' · ')}</p>` : ''}
-    ${donate ? html`<div class="row">${c.donateUrl ? html`<a class="btn ball" href="${c.donateUrl}" target="_blank" rel="noopener">Faire un don en ligne</a>` : ''}<button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" data-act="declare-don">J’ai donné, je le signale</button></div>` : ''}
+    ${donate ? html`<div class="row"><a class="btn ball" href="#/don/${t.id}">Faire un don</a><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" data-act="declare-don">J’ai donné, je le signale</button></div>` : ''}
   </div>`;
+}
+
+/** Réglages : comment les dons sont versés au club (qui collecte puis reverse). */
+export function donSettings(t) {
+  const c = t.charity || {};
+  return html`<div class="card flat stack"><b>Recevoir les dons (le club collecte, puis reverse)</b>
+    <label class="f">Lien de paiement du club <span class="hint">HelloAsso (formulaire de don, 0 % de frais), SumUp, Lydia Pro, PayPal…</span><input type="url" data-path="charity.payUrl" value="${c.payUrl || ''}" placeholder="https://www.helloasso.com/associations/…/formulaires/…"></label>
+    <label class="f">Numéro Wero / Lydia du club <span class="hint">facultatif : les donateurs envoient au numéro affiché</span><input type="tel" data-path="charity.payPhone" value="${c.payPhone || ''}" placeholder="06 12 34 56 78"></label>
+    <label class="f">Bénéficiaire affiché <span class="hint">à qui libeller le paiement</span><input type="text" data-path="charity.payee" value="${c.payee || ''}" placeholder="${t.organizer || 'Nom du club'}"></label>
+    <div class="qrbox"><div class="qr" style="width:140px">${qrSvg(`${store.baseUrl()}#/don/${t.id}`)}</div><span class="hint">QR affiché sur le grand écran : il ouvre la page « Faire un don » du tournoi, avec ces moyens de paiement.</span> <a class="small" href="#/don/${t.id}" target="_blank">Voir la page</a></div>
+  </div>`;
+}
+
+/** Page publique « Faire un don » : paiement au club (lien, Wero/Lydia, sur place) puis signalement du don. */
+export async function donView(ctx) {
+  const { t } = ctx;
+  const c = t.charity || {};
+  if (!c.enabled) return { title: 'Dons', html: html`<main class="sheet"><div class="empty">Pas de cagnotte pour ce tournoi.</div></main>` };
+  const payee = c.payee || t.organizer || 'le club';
+  return {
+    title: `Faire un don · ${t.name}`,
+    html: html`<main class="sheet" style="max-width:520px">
+      ${charityCard(t, { donate: false })}
+      <div class="card stack"><h2 style="margin:0">Faire un don</h2>
+        <p style="margin:0">Les dons sont collectés par <b>${payee}</b>, qui reverse l’intégralité au ${c.label || 'profit de la cause'}.</p>
+        ${c.payUrl ? html`<a class="btn ball block" style="min-height:54px;font-size:1.1rem" href="${c.payUrl}" target="_blank" rel="noopener">Donner en ligne (carte bancaire)</a>` : ''}
+        ${c.payPhone ? html`<div class="card flat stack" style="gap:.4rem"><b>Par Wero ou Lydia</b><span>Envoyez votre don au <b class="num" style="font-size:1.4rem">${c.payPhone}</b> (${payee}), avec « ${c.label || 'Don'} » en message.</span><div><button class="btn ghost sm" data-copy="${c.payPhone.replace(/\s/g, '')}">Copier le numéro</button></div></div>` : ''}
+        <div class="card flat stack" style="gap:.4rem"><b>Sur place</b><span>En espèces ou par carte, à l’accueil ou à la buvette.</span></div>
+        <button class="btn ghost block" data-act="declare-don">J’ai donné : je le signale pour l’afficher à l’écran</button>
+        <p class="hint" style="margin:0">Votre don apparaît sur le grand écran après vérification par l’organisation.</p>
+      </div>
+      <p class="small muted" style="text-align:center"><a href="#/t/${t.id}">Matchs et classements</a></p>
+    </main>`,
+    mount(root) {
+      root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act=declare-don]')) declareDonation(t);
+        const cp = e.target.closest('[data-copy]');
+        if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); toast('Numéro copié', 'ok'); } catch { toast(cp.dataset.copy); } }
+      });
+    },
+  };
 }
 
 export async function declareDonation(t) {
@@ -377,8 +418,7 @@ export function adminCagnotte(ctx) {
         <label class="check"><input type="checkbox" data-path="charity.includeFees" ${c.includeFees ? raw('checked') : ''}> Inscriptions encaissées (${euros(fs.paid)} sur ${euros(fs.due)})</label>
         <label class="check"><input type="checkbox" data-path="charity.includeBuvette" ${c.includeBuvette ? raw('checked') : ''}> Buvette</label>
         ${c.includeBuvette ? html`<label class="f">Compter pour la buvette<select data-path="charity.buvetteMode"><option value="margin" ${c.buvetteMode !== 'revenue' ? raw('selected') : ''}>Le bénéfice (recette − achats)</option><option value="revenue" ${c.buvetteMode === 'revenue' ? raw('selected') : ''}>Toute la recette (produits offerts)</option></select></label>` : ''}
-        <label class="f">Lien de don en ligne<input type="url" data-path="charity.donateUrl" value="${c.donateUrl}" placeholder="Page de collecte Téléthon, HelloAsso, Lydia…"></label>
-        ${c.donateUrl ? html`<div class="qrbox"><div class="qr" style="width:140px">${qrSvg(c.donateUrl)}</div><span class="hint">Affiché sur le grand écran, le portail et l’affiche</span></div>` : ''}
+        ${donSettings(t)}
       </form>
       <form class="card stack" onsubmit="return false"><h3>Fil rouge de la soirée</h3>
         <p class="hint" style="margin:0"><b>Chaque point compte :</b> un partenaire (ou le club) s’engage à verser une somme par point marqué. Le compteur tourne en direct sur le grand écran à chaque point saisi.</p>

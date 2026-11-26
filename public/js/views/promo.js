@@ -1,5 +1,5 @@
 import { store } from '../store.js';
-import { html, raw, toStr, toast, fmtDate, euros, plural, sportOf, qrSvg, download, logo, contrastInk, $ } from '../ui.js';
+import { activeSponsors, sponsorBadge, html, raw, toStr, toast, fmtDate, euros, plural, sportOf, qrSvg, download, logo, contrastInk, $ } from '../ui.js';
 import { SPORTS } from '../engine.js';
 import { FORMATS, PROVIDERS } from './settings.js';
 import qrcode from '../../vendor/qrcode.mjs';
@@ -65,7 +65,7 @@ export async function view(ctx) {
         </div>
         ${[t.social?.facebook, t.social?.instagram, t.social?.website].some(Boolean) ? html`<p class="small" style="margin:0">Suivez-nous : ${t.social.facebook ? html`<a href="${t.social.facebook}" target="_blank" rel="noopener">Facebook</a> ` : ''}${t.social.instagram ? html`<a href="${t.social.instagram}" target="_blank" rel="noopener">Instagram</a> ` : ''}${t.social.website ? html`<a href="${t.social.website}" target="_blank" rel="noopener">Site web</a>` : ''}</p>` : ''}
       </div>
-      ${(t.sponsors || []).filter((s) => s.name).length ? html`<div class="card"><h2>Nos partenaires</h2><div class="row">${t.sponsors.filter((s) => s.name).map((s) => html`<span class="pill" style="font-size:1rem">${s.name}</span>`)}</div></div>` : ''}
+      ${activeSponsors(t).length ? html`<div class="card"><h2>Nos partenaires</h2><div class="row" style="gap:1rem">${activeSponsors(t).map((s) => sponsorBadge(s, { height: 70 }))}</div></div>` : ''}
       <p class="small muted">Le jour J, suivez les matchs en direct sur <a href="#/t/${t.id}">le portail du tournoi</a>. ${t.contact ? `Contact : ${t.contact}` : ''}</p>
     </main>`,
     async mount(root) {

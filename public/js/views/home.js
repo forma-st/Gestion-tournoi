@@ -3,6 +3,7 @@ import { html, raw, toStr, toast, modal, fmtDate, euros, plural, $, $$ } from '.
 import { newTournament, buildSchedule, uid, SPORTS, setArchived } from '../engine.js';
 import { buildDemo, simulate, DEMOS } from '../demo.js';
 import { shell } from './shell.js';
+import { TEMPLATES, makeTemplate, saveDraft } from './wizard.js';
 import { sectionEssentials, sectionCourts, sectionFormat, sectionRules, sectionRegistration, applyField, previewDay, previewCard, formulaCompare, FORMATS } from './settings.js';
 
 // ------------------------------------------------------------------ accueil
@@ -34,7 +35,7 @@ export async function homeView(ctx) {
       <div>
         <h1>Votre tournoi, du premier service au <mark>podium</mark>.</h1>
         <p class="lead">Poules, rotations multisport, phases finales et repêchage. Les joueurs saisissent les scores sur leur téléphone par QR code, le grand écran suit en direct. Fonctionne même sans Internet.</p>
-        <div class="row"><a class="btn ball" href="#/new">Créer un tournoi</a><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="demo" data-kind="multisport" data-sim="3">Voir le Téléthon en direct</button></div>
+        <div class="row"><button class="btn ball" data-act="tpl" data-kind="vide">Créer un tournoi</button><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" data-act="demo" data-kind="multisport" data-sim="3">Voir le Téléthon en direct</button></div>
       </div>
       <div class="court-art stack" aria-hidden="true">
         ${demoCourts.map((d, i) => html`<div class="court ${d.light ? 'light' : ''}" style="--c:${d.c}">
@@ -45,18 +46,19 @@ export async function homeView(ctx) {
     </div></section>
     <main class="wrap">
       <section>
-        <div class="row between"><h2>Mes tournois</h2><a class="btn" href="#/new">Nouveau tournoi</a></div>
+        <div class="row between"><h2>Mes tournois</h2><button class="btn" data-act="tpl" data-kind="vide">Nouveau tournoi</button></div>
         ${active.length ? html`<div class="tlist">${active.map(card)}</div>`
-        : html`<div class="empty"><p><b>${archived.length ? 'Aucun tournoi en cours.' : 'Aucun tournoi pour l’instant.'}</b></p><p>Créez le vôtre en quelques minutes ou partez d’un exemple ci-dessous.</p></div>`}
+        : html`<div class="empty"><p><b>${archived.length ? 'Aucun tournoi en cours.' : 'Aucun tournoi pour l’instant.'}</b></p><p>Créez le vôtre en quelques minutes à partir d’un modèle ci-dessous.</p></div>`}
         ${archived.length ? html`<details class="section" ${showArch ? raw('open') : ''} data-arch><summary style="cursor:pointer;font-weight:600">Archives (${archived.length})</summary>
           <div class="stack" style="margin-top:.8rem">${archived.length > 6 ? html`<input type="search" data-arch-q placeholder="Rechercher dans les archives" style="max-width:360px">` : ''}
           <div class="tlist" data-arch-list>${archived.map(card)}</div></div></details>` : ''}
       </section>
       <section class="section">
-        <h2>Partir d’un exemple</h2>
+        <h2>Créer un tournoi à partir d’un modèle</h2>
+        <p class="muted" style="margin-top:-.4rem">La structure est prête (sports, règles, horaires, carte de la buvette) ; un assistant vous guide ensuite étape par étape.</p>
         <div class="tiles">
-          ${Object.entries(DEMOS).map(([k, label]) => html`<div class="tile" style="cursor:default"><b>${label.split(' : ')[0]}</b><small>${label.split(' : ')[1]}</small>
-            <div class="row" style="margin-top:.5rem"><button class="btn sm" data-act="demo" data-kind="${k}" data-sim="-1">Créer</button>${k === 'interne' ? '' : html`<button class="btn ghost sm" data-act="demo" data-kind="${k}" data-sim="${k === 'fluo' ? 7 : 3}">Avec des matchs joués</button>`}</div></div>`)}
+          ${Object.entries(TEMPLATES).map(([k, m]) => html`<div class="tile" style="cursor:default"><b>${m.icon} ${m.label}</b><small>${m.desc}</small>
+            <div class="row" style="margin-top:.5rem"><button class="btn sm" data-act="tpl" data-kind="${k}">Utiliser ce modèle</button>${DEMOS[k] ? html`<button class="linkbtn small" data-act="demo" data-kind="${k}" data-sim="${k === 'interne' ? -1 : k === 'fluo' ? 7 : 3}">Voir la démo</button>` : ''}</div></div>`)}
         </div>
       </section>
       <section class="section">
@@ -93,6 +95,8 @@ export async function homeView(ctx) {
           catch (err) { toast(err.message, 'err'); }
           return;
         }
+        const tp = e.target.closest('[data-act=tpl]');
+        if (tp) { saveDraft(makeTemplate(tp.dataset.kind)); location.hash = '#/new/tournoi'; return; }
         const b = e.target.closest('[data-act=demo]');
         if (!b) return;
         b.disabled = true;
@@ -103,89 +107,9 @@ export async function homeView(ctx) {
           else if (+b.dataset.sim >= 0) { simulate(t, +b.dataset.sim); t.status = 'live'; }
           else t.status = 'ready';
           await createTournament(t);
-          toast('Tournoi d’exemple créé', 'ok');
+          toast('Démo créée : données fictives, à supprimer ou archiver après', 'ok');
           location.hash = `#/admin/${t.id}${b.dataset.kind === 'interne' ? '/joueurs' : ''}`;
         } catch (err) { toast(err.message, 'err'); b.disabled = false; }
-      });
-    },
-  };
-}
-
-// ------------------------------------------------------------------ assistant de création
-const STEPS = [
-  ['essentiel', 'L’essentiel', sectionEssentials],
-  ['terrains', 'Terrains', sectionCourts],
-  ['format', 'Format', sectionFormat],
-  ['regles', 'Règles', sectionRules],
-  ['inscriptions', 'Inscriptions', sectionRegistration],
-  ['recap', 'Récapitulatif', null],
-];
-
-function getDraft() {
-  try { const d = JSON.parse(sessionStorage.getItem('rot:draft')); if (d) return d; } catch { /* */ }
-  const t = newTournament({ status: 'draft' });
-  saveDraft(t);
-  return t;
-}
-function saveDraft(t) { try { sessionStorage.setItem('rot:draft', JSON.stringify(t)); } catch { /* */ } }
-let expected = 0;
-
-export async function wizardView(ctx) {
-  const t = getDraft();
-  const stepKey = ctx.route.params[0] || 'essentiel';
-  const idx = Math.max(0, STEPS.findIndex((s) => s[0] === stepKey));
-  const [, label, section] = STEPS[idx];
-  const p = previewDay(t, expected || t.registration.maxTeams);
-  const compare = idx === 2 && t.format.type === 'roundrobin' ? formulaCompare({ ...t, registration: { ...t.registration, maxTeams: expected || t.registration.maxTeams } }) : null;
-
-  const body = section ? section(t) : recap(t, p);
-  return {
-    title: 'Nouveau tournoi',
-    html: html`${shell({ title: 'Nouveau tournoi' })}
-    <main class="wrap">
-      <nav class="stepper" aria-label="Étapes">${STEPS.map(([k, l], i) => html`<a href="#/new/${k}" class="${i === idx ? 'on' : i < idx ? 'done' : ''}" ${i === idx ? raw('aria-current="step"') : ''}><b>${i < idx ? '✓' : i + 1}</b>${l}</a>`)}</nav>
-      <div class="wizard section" style="margin-top:1.2rem">
-        <form class="card stack" id="wform" onsubmit="return false">
-          <h2>${label}</h2>
-          ${body}
-          ${compare ? compareTable(compare, t) : ''}
-          <div class="row between" style="margin-top:.5rem">
-            ${idx > 0 ? html`<a class="btn ghost" href="#/new/${STEPS[idx - 1][0]}">Précédent</a>` : html`<button type="button" class="btn ghost" data-act="reset">Recommencer</button>`}
-            ${idx < STEPS.length - 1 ? html`<a class="btn" href="#/new/${STEPS[idx + 1][0]}">Suivant</a>` : html`<button type="button" class="btn ball" data-act="create">Créer le tournoi</button>`}
-          </div>
-        </form>
-        ${previewCard(t, p, expected || t.registration.maxTeams)}
-      </div>
-    </main>`,
-    mount(root) {
-      root.addEventListener('change', (e) => {
-        if (e.target.matches('[data-preview-teams]')) { expected = Math.max(2, +e.target.value || 2); ctx.rerender(); return; }
-        if (!e.target.dataset.path) return;
-        applyField(t, e.target);
-        if (e.target.dataset.path === 'registration.maxTeams') expected = 0;
-        saveDraft(t);
-        ctx.rerender();
-      });
-      root.addEventListener('click', async (e) => {
-        const a = e.target.closest('[data-act]');
-        if (!a) return;
-        if (a.dataset.act === 'courts-dec' || a.dataset.act === 'courts-inc') { applyField(t, { dataset: { path: 'courtCount' }, value: t.courts.length + (a.dataset.act === 'courts-inc' ? 1 : -1), type: 'number' }); saveDraft(t); ctx.rerender(); }
-        if (a.dataset.act === 'add-break') { t.breaks.push({ afterSlot: 3, minutes: 30, label: 'Pause' }); saveDraft(t); ctx.rerender(); }
-        if (a.dataset.act === 'rm-break') { t.breaks.splice(+a.dataset.i, 1); saveDraft(t); ctx.rerender(); }
-        if (a.dataset.act === 'pick-formula') { t.format = { type: 'roundrobin', legs: +a.dataset.legs, finalsTop: +a.dataset.top, thirdPlace: true }; saveDraft(t); ctx.rerender(); }
-        if (a.dataset.act === 'reset') { sessionStorage.removeItem('rot:draft'); ctx.rerender(); }
-        if (a.dataset.act === 'create') {
-          if (!t.name.trim()) return toast('Donnez un nom au tournoi', 'err');
-          a.disabled = true;
-          try {
-            t.id = slug(t.name) + '-' + uid(4);
-            t.status = 'ready';
-            await createTournament(t);
-            sessionStorage.removeItem('rot:draft');
-            toast('Tournoi créé', 'ok');
-            location.hash = `#/admin/${t.id}/equipes`;
-          } catch (err) { toast(err.message, 'err'); a.disabled = false; }
-        }
       });
     },
   };
@@ -225,25 +149,11 @@ export function compareTable(opts, t) {
       <thead><tr><th>Formule</th><th class="n">Matchs</th><th class="n">Par équipe</th><th class="n">Durée</th><th class="n">Fin</th><th></th></tr></thead>
       <tbody>${opts.map((o) => {
         const on = (t.format.legs || 1) === o.legs && (t.format.finalsTop || 0) === o.top;
-        return html`<tr class="${on ? 'me' : ''}">
+        return html`<tr class="${on ? 'chosen-row' : ''}">
           <td><b>${o.legs === 1 ? 'Chacun se rencontre 1 fois' : `Chacun se rencontre ${o.legs} fois`}</b>${o.top ? ' + demi-finales et finale' : ''}<br><span class="hint">${new Set(t.courts.map((c) => c.sport)).size < 2 ? (o.legs === 2 ? 'aller-retour' : o.legs === 3 ? 'trois fois' : 'une fois') : o.legs === 1 ? 'dans un seul sport, réparti équitablement' : `dans ${o.legs} sports différents`}</span></td>
           <td class="n">${o.matches}</td><td class="n">${o.minM === o.maxM ? o.minM : `${o.minM}–${o.maxM}`}${o.top ? '+' : ''}</td>
           <td class="n">${Math.floor(o.playMin / 60)} h ${String(o.playMin % 60).padStart(2, '0')}</td><td class="n"><b>${o.end}</b></td>
-          <td>${on ? html`<span class="pill ok">Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
+          <td>${on ? html`<span class="pill chosen">✓ Choisie</span>` : html`<button type="button" class="btn ghost sm" data-act="pick-formula" data-legs="${o.legs}" data-top="${o.top}">Choisir</button>`}</td></tr>`;
       })}</tbody></table></div>
-  </div>`;
-}
-
-function recap(t, p) {
-  const f = FORMATS[t.format.type];
-  return html`<div class="stack">
-    <dl class="grid2" style="margin:0">
-      <div><dt class="muted small">Tournoi</dt><dd style="margin:0"><b>${t.name}</b><br>${fmtDate(t.date)} à ${t.startTime}${t.venue ? `, ${t.venue}` : ''}</dd></div>
-      <div><dt class="muted small">Format</dt><dd style="margin:0"><b>${f.label}</b>${t.format.type === 'roundrobin' && t.format.legs > 1 ? ` · ${t.format.legs} manches` : ''}${t.format.finalsTop ? ` · phase finale à ${t.format.finalsTop}` : ''}${t.format.type === 'pools' ? ` · ${t.format.pools} poules, ${t.format.qualifiers} qualifiés` : ''}</dd></div>
-      <div><dt class="muted small">Terrains</dt><dd style="margin:0">${t.courts.map((c) => html`<span class="pill cc" style="--c:${c.color};margin:0 .3rem .3rem 0">${SPORTS[c.sport]?.icon} ${c.name}</span>`)}</dd></div>
-      <div><dt class="muted small">Inscriptions</dt><dd style="margin:0">${t.registration.open ? 'Ouvertes en ligne' : 'Saisie par l’organisateur'} · ${t.registration.maxTeams} équipes max · ${t.registration.fee ? euros(t.registration.fee) + ' par équipe' : 'gratuit'}</dd></div>
-    </dl>
-    ${p ? html`<p>Avec ${p.teams} équipes : <b>${p.matches} matchs</b> en ${p.slots} rotations, de ${p.start} à <b>${p.end}</b>.</p>` : ''}
-    <p class="hint">Votre code organisateur : <b class="num" style="font-size:1.3rem;color:var(--ink)">${t.adminPin}</b>. Notez-le : il protège l’administration du tournoi sur le serveur.</p>
   </div>`;
 }

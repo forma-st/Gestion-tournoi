@@ -1,8 +1,9 @@
 import { store } from '../store.js';
-import { html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
+import { activeSponsors, sponsorBadge, html, raw, toast, modal, fmtDate, euros, plural, sides, matchTime, teamName, sportOf, icon, $, esc } from '../ui.js';
 import { BYE, slotTime } from '../engine.js';
 import { matchRow, rankingsView, startTimers, standingsTable } from './components.js';
 import { charityCard, declareDonation } from './bar.js';
+import { tournamentRules, appSteps, hasStarted } from '../rules.js';
 
 const TABS = [['matchs', 'Matchs', 'list'], ['classement', 'Classement', 'trophy'], ['infos', 'Infos', 'info'], ['buvette', 'Buvette', 'cup']];
 
@@ -36,6 +37,7 @@ export async function view(ctx) {
         if (!b) return;
         const act = b.dataset.act;
         if (act === 'logout') { store.setRole(t.id, null); ctx.rerender(); }
+        if (act === 'help-ok') { try { localStorage.setItem(`rot:help:${t.id}`, '1'); } catch { /* */ } b.closest('[data-help]')?.remove(); }
         if (act === 'filter') { sessionStorage.setItem('rot:pf', b.dataset.f); ctx.rerender(); }
         if (act === 'pick-team') {
           const r = await modal({ title: 'Quelle est votre équipe ?', body: html`<label class="f">Équipe<select name="team" required><option value="">Choisir…</option>${t.teams.filter((x) => x.status === 'confirmed').sort((a, b) => a.name.localeCompare(b.name)).map((x) => html`<option value="${x.id}">${x.name}</option>`)}</select></label><p class="hint" style="margin:0">Vous verrez votre poule et vos matchs en premier${t.openScoring ? ', et vous pourrez tenir le score en direct' : '. Pour saisir les scores, utilisez le code PIN de l’équipe'}.</p>`, ok: 'Suivre cette équipe' });
@@ -81,7 +83,10 @@ function matches(ctx, role) {
   const me = role?.teamId;
   const canScore = t.openScoring === true || (role && (role.role === 'volunteer' || role.role === 'team'));
   const f = sessionStorage.getItem('rot:pf') || (me ? 'mine' : 'all');
-  if (!t.matches.length) return html`<div class="empty"><p><b>Le planning arrive bientôt.</b></p><p>Les matchs s’afficheront ici dès que l’organisation l’aura publié.</p></div>`;
+  let seen = false; try { seen = !!localStorage.getItem(`rot:help:${t.id}`); } catch { /* */ }
+  const help = !seen ? html`<div class="card stack" style="margin-bottom:1rem;border-left:6px solid var(--court)" data-help><div class="row between"><b>Première fois ? En 3 gestes</b><button class="linkbtn small" data-act="help-ok">J’ai compris</button></div>
+    <ol class="steps-list">${appSteps(t).slice(1).map((s) => html`<li><b>${s.title}</b>${s.text}</li>`)}</ol><a class="small" href="#/t/${t.id}/infos">Voir les règles du tournoi</a></div>` : '';
+  if (!t.matches.length) return html`${help}<div class="empty"><p><b>Le planning arrive bientôt.</b></p><p>Les matchs s’afficheront ici dès que l’organisation l’aura publié.</p></div>`;
   const { play, ref } = me ? nextFor(ctx, me) : {};
   const card = (m, isRef) => {
     const s = sides(t, m, resolved);
@@ -108,9 +113,10 @@ function matches(ctx, role) {
   for (const m of list) (bySlot[m.slot] ??= []).push(m);
   const action = canScore ? (m, s) => (s.a && s.b && s.a !== BYE && s.b !== BYE && m.status !== 'done' && (t.openScoring || role?.role === 'volunteer' || [s.a, s.b, s.referee].includes(me)) ? html`<button class="btn ${m.status === 'live' ? 'ball' : ''} sm" data-act="score">${m.status === 'live' ? 'Score en direct' : 'Score'}</button>` : '') : null;
   return html`
+    ${help}
     ${me ? html`<div class="stack" style="margin-bottom:1rem">${play ? card(play, false) : html`<div class="mycard"><b>Plus de match prévu pour l’instant.</b><span class="muted">Consultez le classement ou le tableau final.</span></div>`}${ref ? card(ref, true) : ''}${myPool(ctx, me)}</div>` : ''}
     <div class="filters">${Object.entries({ ...(me ? { mine: 'Mes matchs' } : {}), all: 'Tous', live: 'En cours', next: 'À venir', done: 'Terminés' }).map(([k, l]) => html`<button class="${f === k ? 'on' : ''}" data-act="filter" data-f="${k}">${l}</button>`)}</div>
-    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>${slotTime(t, +s)}</h3><span class="muted small">Rotation ${+s + 1}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
+    ${Object.keys(bySlot).length ? Object.entries(bySlot).map(([s, ms]) => html`<div class="slot-h"><h3>Rotation ${+s + 1}</h3><span class="slot-time">${slotTime(t, +s)}</span></div>${ms.map((m) => matchRow(ctx, m, { me, action }))}`) : html`<p class="muted">Aucun match dans cette catégorie.</p>`}`;
 }
 
 /** La poule de l'équipe (phase en cours) : classement et matchs restants. */
@@ -126,11 +132,18 @@ function myPool(ctx, me) {
     ${ms.length && t.format.type !== 'roundrobin' ? html`<b class="small">Matchs restants de la poule</b>${ms.map((m) => matchRow(ctx, m, { me, action: t.openScoring ? (mm, s) => (s.a && s.b && mm.status !== 'done' ? html`<button class="btn ${mm.status === 'live' ? 'ball' : ''} sm" data-act="score">${mm.status === 'live' ? 'Score en direct' : 'Score'}</button>` : '') : null }))}` : ''}</div>`;
 }
 
+function rulesCard(t) {
+  return html`<div class="card stack"><h3 style="margin:0">Les règles du tournoi</h3>
+    <div class="rules-list">${tournamentRules(t).filter((r) => r.title !== 'À savoir').map((r) => html`<div><span class="wic">${r.icon}</span><div><b>${r.title}</b><p>${r.text}</p></div></div>`)}</div></div>
+  <div class="card stack"><h3 style="margin:0">Comment ça marche ?</h3><ol class="steps-list">${appSteps(t).slice(1).map((s) => html`<li><b>${s.title}</b>${s.text}</li>`)}</ol></div>`;
+}
+
 function infos(ctx, role) {
   const { t } = ctx;
   const ch = t.charity;
   return html`<div class="stack">
     ${charityCard(t)}
+    ${rulesCard(t)}
     <div class="card"><h3>Infos pratiques</h3>
       <p><b>${fmtDate(t.date)}</b>, premier match à ${t.startTime}<br>${t.venue}${t.address ? html`<br><a href="https://www.openstreetmap.org/search?query=${encodeURIComponent(t.address)}" target="_blank" rel="noopener">${t.address}</a>` : ''}</p>
       ${t.infos ? html`<p style="white-space:pre-line">${t.infos}</p>` : ''}
@@ -139,7 +152,7 @@ function infos(ctx, role) {
     </div>
     ${(t.announcements || []).length ? html`<div class="card"><h3>Annonces</h3>${t.announcements.slice().reverse().map((a) => html`<p><span class="muted small">${new Date(a.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span> ${a.text}</p>`)}</div>` : ''}
     <form class="card stack" data-form="msg"><h3>Écrire à l’organisation</h3><textarea name="text" maxlength="500" required placeholder="Une question, un retard, un problème sur un terrain…"></textarea><div><button class="btn">Envoyer</button></div></form>
-    ${(t.sponsors || []).filter((s) => s.name).length ? html`<div class="card"><h3>Merci à nos partenaires</h3><div class="row">${t.sponsors.filter((s) => s.name).map((s) => (s.url ? html`<a class="pill" href="${s.url}" target="_blank" rel="noopener">${s.name}</a>` : html`<span class="pill">${s.name}</span>`))}</div></div>` : ''}
+    ${activeSponsors(t).length ? html`<div class="card"><h3>Merci à nos partenaires</h3><div class="row" style="gap:.8rem">${activeSponsors(t).map((s) => sponsorBadge(s, { height: 56 }))}</div></div>` : ''}
     <p class="small muted">${role?.role === 'team' ? '' : 'Organisateur ? '}<a href="#/admin/${t.id}">Espace organisateur</a></p>
   </div>`;
 }

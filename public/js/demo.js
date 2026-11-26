@@ -101,7 +101,7 @@ function telethon() {
       referees: 'teams',
       registration: { open: true, maxTeams: 7, minPlayers: 5, maxPlayers: 10, fee: 5, feeMode: 'player', paymentUrl: '', paymentProvider: 'onsite', deadline: '', requireValidation: false, barCard: { enabled: true, price: 10, points: 12, per: 'team' } },
       charity: {
-        enabled: true, label: 'Téléthon', goal: 1500, raised: 0, donateUrl: 'https://soutenir.afm-telethon.fr/',
+        enabled: true, label: 'Téléthon', goal: 1500, raised: 0, payUrl: '', payPhone: '', payee: 'Rambouillet Volleyball',
         includeFees: true, includeBuvette: true, buvetteMode: 'margin', pointPledge: 0.1, pledgeSponsor: 'nos partenaires', pledgeCap: 300,
         milestones: [{ amount: 500, label: 'les arbitres jouent un match en tutu' }, { amount: 1000, label: 'le président sert les crêpes déguisé' }, { amount: 1500, label: 'match des bénévoles contre les gagnants' }],
         donations: [

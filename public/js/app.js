@@ -11,6 +11,7 @@ import * as sheet from './views/sheet.js';
 import * as promo from './views/promo.js';
 import * as print from './views/print.js';
 import * as bar from './views/bar.js';
+import * as wizard from './views/wizard.js';
 
 const root = document.getElementById('app');
 let current = null; // { view, params, query, t, cleanup }
@@ -28,7 +29,7 @@ export function parseRoute() {
 
 const VIEWS = {
   home: home.homeView,
-  new: home.wizardView,
+  new: wizard.wizardView,
   admin: admin.view,
   t: portal.view,
   live: live.view,
@@ -40,6 +41,7 @@ const VIEWS = {
   print: print.view,
   caisse: bar.caisseView,
   carte: bar.carteView,
+  don: bar.donView,
 };
 
 export function go(hash) { if (location.hash !== hash) location.hash = hash; else render(); }

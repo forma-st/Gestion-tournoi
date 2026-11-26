@@ -158,3 +158,31 @@ export const contrastInk = (hex) => {
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? 'light' : '';
 };
+
+/** Réduit une image (logo) et la renvoie en data URL légère, pour la stocker dans le tournoi. */
+export function imageToDataUrl(file, maxW = 360, maxH = 180) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error('Choisissez une image (PNG, JPG, SVG…)'));
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      let url = c.toDataURL('image/webp', 0.85);
+      if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+      if (url.length > 120000) return reject(new Error('Image trop lourde même réduite : essayez un logo plus simple'));
+      resolve(url);
+    };
+    img.onerror = () => reject(new Error('Image illisible'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/** Partenaire : logo si disponible, sinon nom ; lien vers son site si renseigné. */
+export function sponsorBadge(s, { height = 48, link = true } = {}) {
+  const inner = s.logo ? html`<img src="${s.logo}" alt="${s.name || 'Partenaire'}" style="height:${height}px;width:auto;max-width:${height * 3}px;object-fit:contain;background:#fff;border-radius:6px;padding:4px">` : html`<span class="pill" style="font-size:1rem">${s.name}</span>`;
+  return link && s.url ? html`<a href="${s.url}" target="_blank" rel="noopener" title="${s.name}">${inner}</a>` : inner;
+}
+export const activeSponsors = (t) => (t.sponsors || []).filter((s) => s.name || s.logo);
