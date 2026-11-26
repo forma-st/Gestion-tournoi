@@ -3,6 +3,7 @@ import { store } from '../store.js';
 import { html, raw, toStr, toast, modal, sides, matchTime, teamName, sportOf, phaseLabel, $, esc, contrastInk } from '../ui.js';
 import { scoringFor, setFinished, setTarget, matchResult, BYE } from '../engine.js';
 import { fmtClock } from './components.js';
+import { netBadge } from './shell.js';
 import { clock, elapsedOf } from '../time.js';
 
 /** #/court/:id/:courtId?k=jeton : le match en cours (ou le prochain) sur ce terrain. */
@@ -33,6 +34,7 @@ export async function matchView(ctx) {
 
 // État local de la feuille (survit aux mises à jour en direct)
 let local = null;
+let sendChain = Promise.resolve(); // envois de score faits l’un après l’autre
 
 function sheetFor(ctx, m, { token, court }) {
   const { t, resolved } = ctx;
@@ -43,7 +45,8 @@ function sheetFor(ctx, m, { token, court }) {
   const canTimer = store.isAdmin(t) || t.timerControl === 'players';
   const allowed = !!token || t.openScoring === true || store.isAdmin(t) || role?.role === 'volunteer' || (role?.role === 'team' && [s.a, s.b, s.referee].includes(role.teamId));
   if (!local || local.id !== m.id) local = { id: m.id, sets: structuredClone(m.sets?.length ? m.sets : [[0, 0]]), swapped: false, dirty: false, timer: m.timer || null };
-  if (!local.dirty) { local.sets = structuredClone(m.sets?.length ? m.sets : [[0, 0]]); local.timer = m.timer || null; }
+  // Rien en cours sur ce téléphone : on reprend l'état du serveur (qui inclut les points marqués ailleurs)
+  if (!local.dirty) { local.sets = structuredClone(m.sets?.length ? m.sets : [[0, 0]]); local.sent = structuredClone(local.sets); local.timer = m.timer || null; }
   const sets = local.sets;
   const cur = sets.length - 1;
   const [pa, pb] = sets[cur];
@@ -78,6 +81,7 @@ function sheetFor(ctx, m, { token, court }) {
     title: `${s.nameA} – ${s.nameB}`,
     html: html`<main class="sheet">
       <div class="row between" style="margin-bottom:.5rem"><span class="pill cc" style="--c:${court?.color}">${sportOf(court).icon} ${court?.name}</span><span class="muted small">${phaseLabel(t, m)} · ${matchTime(t, m)}</span></div>
+      <div class="sheetnet">${netBadge()}</div>
       <div class="rules">📋 ${rules}</div>
       ${s.referee ? html`<p class="small muted" style="margin:.5rem 0 0;text-align:center">Arbitre : ${teamName(t, s.referee)}</p>` : ''}
       ${timerBlock}
@@ -110,26 +114,46 @@ function sheetFor(ctx, m, { token, court }) {
       const h = setInterval(tick, 500);
       this.cleanup = () => clearInterval(h);
 
-      let pushTimer = null;
+      /**
+       * Envoi d'un score : chaque envoi part de ce que ce téléphone a envoyé juste avant (base → sets).
+       * Le serveur additionne les écarts : deux téléphones sur le même match ne s'écrasent pas,
+       * et un envoi rejoué après une coupure n'est jamais compté deux fois. Envois faits l'un après l'autre.
+       */
+      const sendNow = (extra = {}) => {
+        const me = local;
+        const run = () => {
+          const sets = structuredClone(me.sets), base = me.sent;
+          me.sent = structuredClone(sets);
+          return store.submitScore(t.id, { ...sendTo, base, sets, status: m.status === 'scheduled' ? 'live' : m.status, timer: me.timer, ...extra });
+        };
+        const p = sendChain.then(run, run);
+        sendChain = p.catch(() => {});
+        return p;
+      };
       const push = (extra = {}, now = false) => {
-        local.dirty = true;
-        clearTimeout(pushTimer);
+        const me = local;
+        me.dirty = true;
+        const n = (me.n = (me.n || 0) + 1);
+        clearTimeout(me.pt); me.pt = null;
+        me.extra = { ...(me.extra || {}), ...extra };
         const go = async () => {
-          local.busy = true;
+          me.pt = null;
+          const ex = me.extra || {}; me.extra = null;
           try {
-            const r = await store.submitScore(t.id, { ...sendTo, sets: local.sets, status: m.status === 'scheduled' ? 'live' : m.status, timer: local.timer, ...extra });
-            if (r?.queued) toast('Pas de réseau : le score sera envoyé dès le retour de la connexion');
-          } catch (e) { toast(e.message, 'err'); }
-          local.busy = false; local.dirty = false;
+            const r = await sendNow(ex);
+            if (r?.queued && !me.warned) { me.warned = true; toast('Pas de réseau : les points sont gardés sur le téléphone et partiront dès le retour de la connexion'); }
+          } catch (e) { toast(e.message, 'err'); me.n++; me.dirty = false; ctx.rerender(); return; }
+          if (me.n === n && !me.pt) me.dirty = false;
         };
         if (now) return go();
-        pushTimer = setTimeout(go, 400);
+        me.pt = setTimeout(go, 400);
       };
 
       root.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-act]');
         if (!b) return;
         const k = b.dataset.k === 'A' ? 0 : 1;
+        const wasDirty = local.dirty;
         local.dirty = true;
         const c = local.sets[local.sets.length - 1];
         switch (b.dataset.act) {
@@ -139,7 +163,7 @@ function sheetFor(ctx, m, { token, court }) {
             ctx.repaint(); push(); break;
           case 'minus': if (c[k] > 0) { c[k]--; ctx.repaint(); push(); } break;
           case 'next-set': local.sets.push([0, 0]); ctx.repaint(); push(); break;
-          case 'swap': local.swapped = !local.swapped; local.dirty = !!pushTimer || local.busy; ctx.repaint(); break;
+          case 'swap': local.swapped = !local.swapped; local.dirty = wasDirty; ctx.repaint(); break;
           case 'start':
             m.status = 'live';
             if (sc.mode === 'time' && !local.timer && canTimer) local.timer = { running: true, elapsed: 0, since: clock.now() };
@@ -165,10 +189,10 @@ function sheetFor(ctx, m, { token, court }) {
               ok: 'Valider et envoyer',
             });
             if (!ok) return;
-            clearTimeout(pushTimer);
+            clearTimeout(local.pt); local.pt = null; local.extra = null;
             local.busy = true;
             try {
-              const r2 = await store.submitScore(t.id, { ...sendTo, sets: local.sets, status: 'done', tieWinner: ok.tie || null, signatures: { A: ok.sigA, B: ok.sigB }, submittedBy: [ok.sigA, ok.sigB].filter(Boolean).join(' & ') || (role?.role === 'team' ? teamName(t, role.teamId) : 'Feuille du terrain'), timer: local.timer ? { ...local.timer, running: false } : null });
+              const r2 = await sendNow({ status: 'done', tieWinner: ok.tie || null, signatures: { A: ok.sigA, B: ok.sigB }, submittedBy: [ok.sigA, ok.sigB].filter(Boolean).join(' & ') || (role?.role === 'team' ? teamName(t, role.teamId) : 'Feuille du terrain'), timer: local.timer ? { ...local.timer, running: false } : null });
               toast(r2?.queued ? 'Score enregistré sur le téléphone, envoi dès le retour du réseau' : 'Score envoyé ✓', r2?.queued ? '' : 'ok');
               m.status = 'done';
               local = null;

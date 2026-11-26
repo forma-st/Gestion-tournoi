@@ -2,7 +2,7 @@
 import { store } from './store.js';
 import { resolve } from './engine.js';
 import { html, raw, toStr, toast, $ } from './ui.js';
-import { shell } from './views/shell.js';
+import { shell, netBadge } from './views/shell.js';
 import * as home from './views/home.js';
 import * as admin from './views/admin.js';
 import * as portal from './views/portal.js';
@@ -61,8 +61,11 @@ export async function render({ soft = false } = {}) {
   const seq = ++renderSeq;
   const route = parseRoute();
   const fn = VIEWS[route.name] || home.homeView;
-  const ctx = await loadCtx(route);
+  let ctx;
+  try { ctx = await loadCtx(route); }
+  catch (e) { return renderFailed(e, soft); }
   if (seq !== renderSeq) return;
+  if (ctx.t) announce(route, ctx.t);
   ctx.rerender = () => render({ soft: true });
   ctx.go = go;
   ctx.store = store;
@@ -73,8 +76,39 @@ export async function render({ soft = false } = {}) {
   }
   // Ne pas écraser une saisie en cours lors d'une mise à jour en arrière-plan
   if (soft && current?.view === fn && current.keep?.()) return;
-  ctx.repaint = () => paint(fn, ctx, true, renderSeq);
-  await paint(fn, ctx, soft, seq);
+  ctx.repaint = () => paint(fn, ctx, true, renderSeq).catch((e) => renderFailed(e, true));
+  try { await paint(fn, ctx, soft, seq); }
+  catch (e) { renderFailed(e, soft); }
+}
+
+/**
+ * Une erreur d'affichage ne doit jamais laisser un écran blanc (grand écran, feuille de match) :
+ * on garde ce qui est affiché et on réessaie quelques secondes plus tard.
+ */
+let retryTimer = null;
+function renderFailed(e, soft) {
+  console.error('Affichage impossible, nouvel essai dans 5 s', e);
+  if (!soft && !root.childElementCount) root.innerHTML = '<main class="wrap narrow"><div class="empty"><h2>Chargement…</h2><p>Nouvel essai dans quelques secondes.</p></div></main>';
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => render({ soft: true }), 5000);
+}
+
+/**
+ * Mises à jour en arrière-plan : pendant un match, il en arrive une à chaque point marqué.
+ * On les regroupe (au plus un rafraîchissement toutes les 0,7 s, jamais deux en même temps).
+ */
+let busy = false, again = false, lastRun = 0, softTimer = null;
+function scheduleSoft() {
+  if (busy) { again = true; return; }
+  if (softTimer) return;
+  softTimer = setTimeout(async () => {
+    softTimer = null;
+    busy = true; lastRun = Date.now();
+    try { await render({ soft: true }); } finally {
+      busy = false;
+      if (again) { again = false; scheduleSoft(); }
+    }
+  }, Math.max(0, 700 - (Date.now() - lastRun)));
 }
 
 /** Dessine une vue avec un contexte déjà chargé (repaint = sans relire les données). */
@@ -98,26 +132,30 @@ const scrollY0 = () => window.scrollY;
 await store.init();
 store.subscribe((msg) => {
   const r = parseRoute();
-  if (msg.type === 'net') { const n = $('.net'); if (n) n.outerHTML = toStr(shell()).match(/<span class="net[\s\S]*?<\/span>/)[0]; return; }
+  if (msg.type === 'net') return refreshNet();
   if (msg.type === 'announce') return;
-  if (!msg.id || r.params[0] === msg.id || r.name === 'home') render({ soft: true });
+  if (!msg.id || r.params[0] === msg.id || r.name === 'home') scheduleSoft();
 });
 addEventListener('hashchange', () => render());
+
+/** Met à jour les voyants de connexion sans redessiner la page (et toutes les 5 s, pour l'état « lent »). */
+function refreshNet() {
+  const badge = toStr(netBadge());
+  document.querySelectorAll('.net').forEach((n) => { if (n.outerHTML !== badge) n.outerHTML = badge; });
+}
+setInterval(refreshNet, 5000);
 render();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => { /* facultatif */ });
 }
 
-// Annonces : affichées en bandeau sur toutes les pages publiques
+// Annonces : affichées en bandeau sur toutes les pages publiques (sans requête supplémentaire)
 let lastAnn = null;
-store.subscribe(async (msg) => {
-  if (msg.type !== 'update') return;
-  const r = parseRoute();
-  if (!['t', 'live', 'court', 'match'].includes(r.name) || r.params[0] !== msg.id) return;
-  const t = await store.get(msg.id);
+function announce(route, t) {
+  if (!['t', 'live', 'court', 'match'].includes(route.name)) return;
   const a = t?.announcements?.at(-1);
   if (a && a.id !== lastAnn && Date.now() - new Date(a.at).getTime() < 120000) { lastAnn = a.id; toast(`📣 ${a.text}`, 'ann'); }
-});
+}
 
 export { raw };

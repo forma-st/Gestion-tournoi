@@ -22,6 +22,8 @@ export const store = {
 
   publicUrl: '',
   online: false,
+  lastOk: 0, // dernière réponse reçue du serveur (indicateur de santé)
+  inflight: {},
   keyRequired: false,
   realtime: true,
   hosted: false,
@@ -39,7 +41,11 @@ export const store = {
 
   async init() {
     await this.ping();
-    if (this.mode === 'server') this.connect();
+    if (this.mode === 'server') {
+      this.connect();
+      // Retour sur l'onglet (téléphone en veille, appli en arrière-plan) : on se remet à jour tout de suite
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && this.watching) { emit({ type: 'update', id: this.watching }); this.flush(); } });
+    }
     this.bc?.addEventListener('message', (e) => emit(e.data));
     addEventListener('storage', (e) => { if (e.key?.startsWith('rot:t:')) emit({ type: 'update', id: e.key.slice(6) }); });
     addEventListener('online', () => { this.online = true; this.flush(); emit({ type: 'net' }); });
@@ -52,7 +58,7 @@ export const store = {
   watch(id) { this.watching = id || null; },
 
   /** Hébergement sans connexion permanente (Vercel) : on vérifie la version toutes les 3 secondes. */
-  startPolling() {
+  startPolling(every = 3000) {
     if (this.polling) return;
     this.polling = setInterval(async () => {
       const id = this.watching;
@@ -62,22 +68,30 @@ export const store = {
         if (!r.ok) return;
         const { version } = await r.json();
         if (!this.online) { this.online = true; emit({ type: 'net' }); this.flush(); }
+        this.lastOk = Date.now();
         if (this.lastVer[id] != null && version != null && version !== this.lastVer[id]) { this.lastVer[id] = version; emit({ type: 'update', id }); }
         else if (version != null) this.lastVer[id] = version;
       } catch { if (this.online) { this.online = false; emit({ type: 'net' }); } }
-    }, 3000);
+    }, every);
   },
 
   connect() {
-    if (!this.realtime) return this.startPolling();
-    if (!('EventSource' in self)) return;
+    if (!this.realtime || !('EventSource' in self)) return this.startPolling();
+    // Filet de sécurité : si la connexion permanente se fige sans prévenir (tunnel, 4G), on vérifie quand même
+    this.startPolling(10000);
     const es = new EventSource('api/events');
     es.onmessage = (e) => {
       let msg; try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === 'net') this.ping().then(() => emit({ type: 'net' })); // l'adresse publique vient d'apparaître
       else emit(msg);
     };
-    es.onopen = () => { this.online = true; emit({ type: 'net' }); this.flush(); };
+    es.onopen = () => {
+      const wasOff = !this.online;
+      this.online = true; this.lastOk = Date.now();
+      emit({ type: 'net' }); this.flush();
+      // reconnexion après une coupure : des mises à jour ont pu être manquées
+      if (wasOff && this.watching) emit({ type: 'update', id: this.watching });
+    };
     es.onerror = () => { this.online = false; emit({ type: 'net' }); };
   },
 
@@ -97,8 +111,18 @@ export const store = {
     if (pin) headers['x-admin-pin'] = pin;
     const key = LS.get('rot:adminKey', '');
     if (key && !headers['x-admin-key']) headers['x-admin-key'] = key; // la clé générale ouvre tous les tournois
-    const r = await fetch(`api/${path}`, { ...opt, headers, cache: 'no-store' });
+    const ms = opt.timeout || ((opt.method || 'GET') === 'GET' ? 12000 : 15000);
+    let r;
+    try { r = await fetch(`api/${path}`, { ...opt, headers, cache: 'no-store', signal: AbortSignal.timeout(ms) }); }
+    catch (e) {
+      if (this.online && this.mode === 'server') { this.online = false; emit({ type: 'net' }); }
+      throw Object.assign(new Error(e?.name === 'TimeoutError' ? 'Le réseau ne répond pas' : 'Pas de réseau'), { network: true });
+    }
+    this.lastOk = Date.now();
+    if (!this.online && this.mode === 'server') { this.online = true; emit({ type: 'net' }); setTimeout(() => this.flush(), 0); }
     const j = await r.json().catch(() => ({}));
+    // 502/503/504 : le tunnel ou le serveur est momentanément indisponible → traité comme une coupure réseau
+    if (r.status >= 502 && r.status <= 504) throw Object.assign(new Error('Serveur momentanément indisponible'), { network: true });
     if (!r.ok) throw Object.assign(new Error(j.error || `Erreur ${r.status}`), { status: r.status, body: j });
     return j;
   },
@@ -113,6 +137,16 @@ export const store = {
 
   async get(id) {
     if (this.mode === 'server') {
+      if (this.inflight[id]) return this.inflight[id].then((t) => (t ? structuredClone(t) : t));
+      const p = this.fetchDoc(id);
+      this.inflight[id] = p;
+      try { return await p; } finally { delete this.inflight[id]; }
+    }
+    return LS.get(`rot:t:${id}`, null);
+  },
+
+  async fetchDoc(id) {
+    {
       try {
         const t = await this.api(`t/${id}`, {}, id);
         LS.set(`rot:cache:${id}`, t);
@@ -124,7 +158,13 @@ export const store = {
         return c ? this.applyOutbox(c) : null;
       }
     }
-    return LS.get(`rot:t:${id}`, null);
+  },
+
+  /** État de la connexion pour les indicateurs : ok, lent (pas de nouvelles depuis 30 s), coupé. */
+  health() {
+    if (this.mode === 'local') return { state: 'local', pending: 0 };
+    const age = this.lastOk ? Date.now() - this.lastOk : Infinity;
+    return { state: !this.online ? 'off' : age > 30000 ? 'slow' : 'ok', age, pending: this.pending.length };
   },
 
   isAdmin(t) { return this.mode === 'local' || (t && t.adminPin != null); },
@@ -195,13 +235,18 @@ export const store = {
         if (payload.status === 'done') { m.finishedAt = new Date().toISOString(); m.validated = !t.scoreValidation; }
       });
     }
+    payload = { ...payload, op: payload.op || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}` };
+    // des envois du même match attendent déjà : on passe derrière eux pour garder l'ordre
+    if (this.pending.some((p) => p.id === id && (p.kind || 'score') === 'score' && p.payload.matchId === payload.matchId)) {
+      this.queue(id, 'score', payload);
+      this.flush();
+      return { queued: true };
+    }
     try {
-      const r = await this.api(`t/${id}/score`, { method: 'POST', body: JSON.stringify({ ...payload, pin: payload.pin || this.role(id)?.pin }) }, id);
-      return r;
+      return await this.api(`t/${id}/score`, { method: 'POST', body: JSON.stringify({ ...payload, pin: payload.pin || this.role(id)?.pin }) }, id);
     } catch (e) {
       if (e.status) throw e; // refus du serveur : on remonte l'erreur
-      // réseau absent : file d'attente (la dernière saisie d'un match remplace les précédentes)
-      this.pending = this.pending.filter((p) => !(p.id === id && (p.kind || 'score') === 'score' && p.payload.matchId === payload.matchId));
+      // réseau absent : file d'attente ; renvoyé tel quel (même identifiant) → jamais compté deux fois
       this.queue(id, 'score', payload);
       return { queued: true };
     }
@@ -270,15 +315,25 @@ export const store = {
   },
 
   async flush() {
-    if (this.mode !== 'server' || !this.pending.length) return;
-    const left = [];
-    for (const p of this.pending) {
-      const path = (p.kind || 'score') === 'sale' ? 'sale' : 'score';
-      try { await this.api(`t/${p.id}/${path}`, { method: 'POST', body: JSON.stringify({ ...p.payload, pin: p.payload.pin || this.role(p.id)?.pin }) }, p.id); }
-      catch (e) { if (!e.status) left.push(p); }
+    if (this.mode !== 'server' || !this.pending.length || this.flushing) return;
+    this.flushing = true;
+    try {
+      const batch = this.pending.slice();
+      const left = [], blocked = new Set();
+      for (const p of batch) {
+        const path = (p.kind || 'score') === 'sale' ? 'sale' : 'score';
+        const key = `${p.id}|${path}|${p.payload.matchId || ''}`;
+        // un envoi a échoué pour ce match : les suivants attendent (l'ordre compte : « terminé » en dernier)
+        if (blocked.has(key)) { left.push(p); continue; }
+        try { await this.api(`t/${p.id}/${path}`, { method: 'POST', body: JSON.stringify({ ...p.payload, pin: p.payload.pin || this.role(p.id)?.pin }) }, p.id); }
+        catch (e) { if (!e.status) { left.push(p); blocked.add(key); } }
+      }
+      // les envois ajoutés pendant la boucle restent en file, derrière
+      this.pending = [...left, ...this.pending.slice(batch.length)];
+      LS.set('rot:outbox', this.pending);
+    } finally {
+      this.flushing = false;
     }
-    this.pending = left;
-    LS.set('rot:outbox', left);
     emit({ type: 'net' });
   },
 

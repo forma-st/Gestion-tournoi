@@ -510,3 +510,22 @@ details.slotbox:not([open]) > summary { margin: .3rem 0; padding: .3rem .9rem; }
 details.slotbox:not([open]) > summary h3, details.slotbox:not([open]) > summary .slot-time { font-size: 1.1rem; }
 details.slotbox:not([open]) > summary .btn { min-height: 0; padding: .2rem .6rem; font-size: .8rem; }
 details.slotbox[open] + .pill, details.slotbox[open] + details.slotbox { margin-top: 1rem; }
+
+/* Voyant de connexion : orange = pas de nouvelles depuis 30 s */
+.net.slow i { background: #F59E0B; }
+.net.slow { background: rgba(245, 158, 11, .18); }
+.net.off { background: rgba(248, 113, 113, .22); }
+.tvstatus { display: flex; flex-direction: column; align-items: flex-end; gap: .6vh; }
+.tvstatus .net { font-size: 1.4vh; }
+
+/* Feuille de match : voyant de connexion bien visible (hors ligne = points gardés sur le téléphone) */
+.sheetnet { display: flex; justify-content: center; margin: 0 0 .5rem; }
+.sheetnet .net { background: var(--ink); color: #fff; font-size: .9rem; }
+
+/* Fiche Jour J imprimable */
+.jourj h1 { font-size: 1.8rem; margin: .5rem 0; }
+.jourj .jj { break-inside: avoid; margin-bottom: 1rem; }
+.jourj .jj h2 { font-size: 1.15rem; border-bottom: 2px solid var(--court, #0B6E2E); padding-bottom: .2rem; margin: .4rem 0; }
+.jourj .jj ul { margin: 0; padding-left: 1.1rem; }
+.jourj .jj li { margin: .25rem 0; line-height: 1.35; }
+@media print { .jourj { font-size: 10.5pt; } .jourj .grid2 { grid-template-columns: 1fr 1fr; } }

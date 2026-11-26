@@ -19,7 +19,7 @@ npm start            # réseau local uniquement (Wi-Fi)
 ## Mettre en ligne
 
 - **Pour faire tester l’équipe ou ouvrir les inscriptions** : déploiement sur **Vercel**, avec une base Redis Upstash gratuite. Tout est prêt (`vercel.json`, `api/`) ; voir [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md).
-- **Le jour J** : l’ordinateur du gymnase, avec `npm run en-ligne:tailscale` (adresse fixe, QR imprimables à l’avance) ou `npm run en-ligne` (Cloudflare).
+- **Le jour J, sur un Mac** : double-cliquer sur **`lancer-tournoi.command`**. Le lanceur ouvre une adresse fixe via Tailscale, empêche la mise en veille, redémarre le serveur et le tunnel s’ils s’arrêtent, et sauvegarde toutes les 2 minutes. Voir [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md), section 2.
 
 ## Le jour J, sans Wi-Fi au gymnase
 
@@ -56,7 +56,8 @@ Variables utiles : `PORT`, `DATA_DIR`, `PUBLIC_URL`, `ADMIN_KEY`, `TUNNEL_TOKEN`
 ### Tests
 
 ```bash
-npm test    # moteur : rotations, poules, niveaux, tableaux, classements, retards
+npm test              # moteur (rotations, poules, tableaux, classements) + serveur (scores simultanés, doublons, médias)
+npm run test:charge   # simule une soirée : spectateurs en direct + arbitres, vérifie qu'aucun point n'est perdu
 ```
 
 ## Ce que fait l’application

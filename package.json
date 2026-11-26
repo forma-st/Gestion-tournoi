@@ -8,7 +8,9 @@
     "start": "node server.js",
     "en-ligne": "node server.js --tunnel",
     "en-ligne:tailscale": "node server.js --tailscale",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "tournoi": "./lancer-tournoi.command",
+    "test:charge": "node test/charge.mjs"
   },
   "engines": {
     "node": "22.x"

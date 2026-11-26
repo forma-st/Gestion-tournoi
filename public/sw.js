@@ -1,5 +1,5 @@
 // Service worker : l'application fonctionne hors ligne une fois ouverte une première fois.
-const CACHE = 'rotation-v15';
+const CACHE = 'rotation-v16';
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'js/app.js', 'js/engine.js', 'js/money.js', 'js/club.js', 'js/time.js', 'js/rules.js', 'js/sound.js', 'sounds/trompe.mp3', 'js/views/bar.js', 'js/views/wizard.js', 'js/store.js', 'js/ui.js', 'js/demo.js', 'vendor/qrcode.mjs',
   'js/views/shell.js', 'js/views/home.js', 'js/views/settings.js', 'js/views/components.js', 'js/views/admin.js',
@@ -15,12 +15,31 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/api/')) return;
-  // Réseau d'abord (pour avoir la dernière version), cache en secours
-  e.respondWith(
-    fetch(e.request).then((res) => {
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // Logos et sons : contenu fixe pour une adresse donnée → cache d'abord
+  if (url.pathname.includes('/api/media/')) {
+    e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
-    }).catch(() => caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('index.html') : Response.error()))),
-  );
+    })));
+    return;
+  }
+  if (url.pathname.includes('/api/')) return;
+  // Réseau d'abord (pour avoir la dernière version), mais sans attendre plus de 4 s une 4G saturée : copie locale
+  e.respondWith((async () => {
+    const cached = caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('index.html') : undefined));
+    const net = fetch(e.request).then((res) => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+      return res;
+    });
+    net.catch(() => {});
+    const slow = new Promise((ok) => setTimeout(ok, 4000)).then(() => cached);
+    try {
+      const first = await Promise.race([net, slow]);
+      if (first) return first;
+      return await net;
+    } catch {
+      return (await cached) || Response.error();
+    }
+  })());
 });
