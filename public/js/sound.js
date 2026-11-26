@@ -32,13 +32,14 @@ function hornWave() {
 
 /**
  * Trompe de stade, d'après l'enregistrement :
- * - une seule note, ≈ 284 Hz (ré 4 un peu bas), qui part de ≈ 378 Hz et glisse vers sa note en 0,5 s ;
+ * - une seule note, ≈ 268 Hz (un demi-ton sous l'original), qui part un tiers plus haut et glisse vers sa note en 0,5 s ;
+ * - timbre de l'original, un peu plus « cuivre plastique » (saturation douce, bosse nasale vers 1,9 kHz) ;
  * - attaque immédiate, son tenu ≈ 1,9 s, puis extinction rapide (−10 dB en 50 ms) et traîne de 0,8 s.
  */
 export function horn() {
   if (!soundReady()) return false;
   const t0 = ctx.currentTime + 0.02;
-  const f0 = 284, hold = 1.9, tail = 0.8;
+  const f0 = 268, hold = 1.9, tail = 0.8; // un demi-ton sous l'enregistrement (284 Hz)
   const master = ctx.createGain();
   master.gain.value = 0.6;
   const comp = ctx.createDynamicsCompressor();
@@ -50,11 +51,18 @@ export function horn() {
   env.gain.setValueAtTime(1, t0 + hold);
   env.gain.exponentialRampToValueAtTime(0.32, t0 + hold + 0.05);
   env.gain.setTargetAtTime(0.0001, t0 + hold + 0.05, tail / 5);
-  env.connect(master);
+  // touche « cuivre plastique » : légère saturation + bosse nasale vers 1,9 kHz (pavillon en plastique)
+  const sat = ctx.createWaveShaper();
+  const n = 1024, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = (i * 2) / n - 1; curve[i] = Math.tanh(1.6 * x) / Math.tanh(1.6); }
+  sat.curve = curve; sat.oversample = '4x';
+  const nasal = ctx.createBiquadFilter(); nasal.type = 'peaking'; nasal.frequency.value = 1900; nasal.Q.value = 1.6; nasal.gain.value = 4;
+  const soft = ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 7000;
+  env.connect(sat).connect(nasal).connect(soft).connect(master);
   const o = ctx.createOscillator();
   o.setPeriodicWave(hornWave());
-  // glissé mesuré : f(t) ≈ 284 + 94·e^(−t/0,13)
-  o.frequency.setValueAtTime(f0 + 94, t0);
+  // glissé mesuré : la note part 33 % plus haut et rejoint sa hauteur (constante 0,13 s)
+  o.frequency.setValueAtTime(f0 * 1.33, t0);
   o.frequency.setTargetAtTime(f0, t0, 0.13);
   o.connect(env);
   o.start(t0);
